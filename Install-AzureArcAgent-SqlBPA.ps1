@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     This script:
-      1. Registers the required Azure resource providers.
+      1. Validates the required Azure resource providers are registered.
       2. Downloads and installs the Azure Connected Machine Agent.
       3. Connects the machine to Azure Arc using a service principal.
       4. Verifies the SQL Server extension is present (auto-deployed by Arc).
@@ -122,7 +122,14 @@ function Assert-Elevated {
 }
 
 function Install-RequiredModules {
-    $modules = @('Az.Accounts', 'Az.ConnectedMachine', 'Az.ArcData', 'Az.Resources')
+    # Ensure NuGet provider is available (required for PowerShellGet on older systems)
+    if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue | Where-Object { $_.Version -ge '2.8.5.201' })) {
+        Write-Host "  Installing NuGet package provider..." -ForegroundColor Yellow
+        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null
+    }
+
+    $modules = @('Az.Accounts', 'Az.ConnectedMachine', 'Az.Resources')
+
     foreach ($mod in $modules) {
         if (-not (Get-Module -ListAvailable -Name $mod)) {
             Write-Host "  Installing PowerShell module: $mod" -ForegroundColor Yellow
@@ -149,22 +156,29 @@ $credential   = New-Object System.Management.Automation.PSCredential($ServicePri
 Connect-AzAccount -ServicePrincipal -Tenant $TenantId -Credential $credential -Subscription $SubscriptionId | Out-Null
 Write-Host '  Authenticated successfully.' -ForegroundColor Green
 
-# ── Step 3: Register resource providers ──────────────────────────────────────
-Write-Step 'Registering required Azure resource providers'
+# ── Step 3: Validate resource providers are registered ────────────────────────
+Write-Step 'Validating required Azure resource providers'
 $providers = @(
     'Microsoft.HybridCompute',
     'Microsoft.GuestConfiguration',
     'Microsoft.AzureArcData',
     'Microsoft.OperationalInsights'
 )
+$missingProviders = @()
 foreach ($provider in $providers) {
     $state = (Get-AzResourceProvider -ProviderNamespace $provider).RegistrationState | Select-Object -First 1
     if ($state -ne 'Registered') {
-        Write-Host "  Registering: $provider" -ForegroundColor Yellow
-        Register-AzResourceProvider -ProviderNamespace $provider | Out-Null
+        Write-Host "  NOT registered: $provider (state: $state)" -ForegroundColor Red
+        $missingProviders += $provider
     } else {
-        Write-Host "  Already registered: $provider" -ForegroundColor Green
+        Write-Host "  Registered: $provider" -ForegroundColor Green
     }
+}
+if ($missingProviders.Count -gt 0) {
+    Write-Warning "The following providers are not registered: $($missingProviders -join ', ')"
+    Write-Warning "Register them before running this script, e.g.:"
+    foreach ($p in $missingProviders) { Write-Warning "  az provider register --namespace $p --wait" }
+    throw "Required resource providers are not registered."
 }
 
 # ── Step 4: Download and install the Azure Connected Machine Agent ────────────
@@ -249,47 +263,68 @@ if (-not $extensionFound) {
 # ── Step 7: Enable SQL Best Practices Assessment ──────────────────────────────
 Write-Step 'Enabling SQL Best Practices Assessment on the Arc-enabled SQL Server'
 
-# The Arc-enabled SQL Server resource has the same name as the machine.
-# The assessment feature is managed via the ArcData resource (Microsoft.AzureArcData/sqlServerInstances).
-# We use the Az.ArcData module to enable assessment and link the Log Analytics workspace.
+# Enable assessment via REST API — no Az.ArcData module needed.
+# The token handling supports both older (string) and newer (SecureString) Az modules.
+$tokenObj = Get-AzAccessToken -ResourceUrl "https://management.azure.com"
+$token = if ($tokenObj.Token -is [System.Security.SecureString]) {
+    [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+        [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($tokenObj.Token))
+} else { $tokenObj.Token }
 
-# Retrieve all SQL Server Arc resources registered under this machine.
-$sqlArcInstance = Get-AzArcSetting `
-    -ResourceGroupName $ResourceGroupName `
-    -SqlServerInstanceName $MachineName `
-    -ErrorAction SilentlyContinue
+$headers = @{
+    Authorization  = "Bearer $token"
+    'Content-Type' = 'application/json'
+}
 
-if (-not $sqlArcInstance) {
-    Write-Warning "No Arc-enabled SQL Server instance found for machine '$MachineName' in resource group '$ResourceGroupName'."
-    Write-Warning 'SQL Best Practices Assessment was NOT enabled automatically.'
-    Write-Warning 'You can enable it manually from the Azure portal: Arc-enabled SQL Server > Best Practices Assessment.'
-} else {
-    # Enable assessment via REST API (Az.ArcData cmdlets may not expose a direct enable-assessment cmdlet
-    # in all module versions, so we fall back to the Azure REST API).
-    $token   = (Get-AzAccessToken).Token
-    $apiBase = "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName" +
-               "/providers/Microsoft.AzureArcData/sqlServerInstances/$MachineName/assessments/default"
-    $apiVersion = '2023-03-15-preview'
+# Wait for the SQL Server Arc extension to register the SQL instance (may take a few minutes)
+$sqlInstanceApiBase = "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName" +
+    "/providers/Microsoft.AzureArcData/sqlServerInstances"
+$apiVersion = '2023-03-15-preview'
+
+$maxWait = 300  # 5 minutes
+$elapsed = 0
+$sqlInstanceName = $null
+
+Write-Host "  Waiting for SQL Server Arc instance to be discovered..." -ForegroundColor Yellow
+while ($elapsed -lt $maxWait) {
+    try {
+        $instances = Invoke-RestMethod -Uri "$sqlInstanceApiBase`?api-version=$apiVersion" -Headers $headers -Method Get
+        $match = $instances.value | Where-Object { $_.name -match $MachineName }
+        if ($match) {
+            $sqlInstanceName = $match.name
+            Write-Host "  Found SQL instance: $sqlInstanceName" -ForegroundColor Green
+            break
+        }
+    } catch { }
+    Start-Sleep -Seconds 30
+    $elapsed += 30
+    Write-Host "  Still waiting... ($elapsed seconds)" -ForegroundColor Yellow
+}
+
+if ($sqlInstanceName) {
+    $assessmentUri = "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName" +
+        "/providers/Microsoft.AzureArcData/sqlServerInstances/$sqlInstanceName/assessments/default" +
+        "?api-version=$apiVersion"
 
     $body = @{
         properties = @{
-            assessmentEnabled = $true
+            assessmentEnabled   = $true
             workspaceResourceId = $WorkspaceId
         }
     } | ConvertTo-Json -Depth 5
 
-    $headers = @{
-        Authorization  = "Bearer $token"
-        'Content-Type' = 'application/json'
+    try {
+        Invoke-RestMethod -Uri $assessmentUri -Method Put -Headers $headers -Body $body | Out-Null
+        Write-Host '  SQL Best Practices Assessment enabled successfully.' -ForegroundColor Green
+        Write-Host "  Results will be sent to Log Analytics workspace: $WorkspaceId" -ForegroundColor Green
+    } catch {
+        Write-Host "  Warning: Could not enable assessment via REST API: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "  Enable manually: Azure Portal > Arc-enabled SQL Server > Best Practices Assessment" -ForegroundColor Yellow
     }
-
-    Invoke-RestMethod -Uri "$apiBase`?api-version=$apiVersion" `
-        -Method Put `
-        -Headers $headers `
-        -Body $body | Out-Null
-
-    Write-Host '  SQL Best Practices Assessment enabled successfully.' -ForegroundColor Green
-    Write-Host "  Results will be sent to Log Analytics workspace: $WorkspaceId" -ForegroundColor Green
+} else {
+    Write-Host "  Warning: SQL Server instance not discovered after $maxWait seconds." -ForegroundColor Yellow
+    Write-Host "  The SQL extension may still be deploying. Check the Azure portal in a few minutes." -ForegroundColor Yellow
+    Write-Host "  Enable BPA manually: Azure Portal > Arc-enabled SQL Server > Best Practices Assessment" -ForegroundColor Yellow
 }
 
 Write-Host "`n[DONE] Azure Arc agent installation and SQL Best Practices Assessment setup complete." -ForegroundColor Cyan

@@ -11,3 +11,6 @@ override.tf.json
 *_override.tf.json
 .terraform.lock.hcl
 terraform.tfvars
+
+# Hyper-V
+hyper-v/license-keys.ps1

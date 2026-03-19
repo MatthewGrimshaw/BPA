@@ -1,0 +1,18 @@
+# License keys for Hyper-V lab VMs
+# Copy this file to license-keys.ps1 and fill in your MAK keys.
+# This file is gitignored — do NOT commit keys to source control.
+#
+# Windows Server keys are available from your Visual Studio subscription:
+#   https://my.visualstudio.com/ProductKeys
+#
+# SQL Server Developer edition does not require a product key.
+
+$LicenseKeys = @{
+    # Windows Server MAK keys (from Visual Studio subscription)
+    WindowsServer2022 = "XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+    WindowsServer2019 = "XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+
+    # SQL Server keys (optional — Developer edition is free and doesn't need a key)
+    # SqlServer2022     = "XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+    # SqlServer2019     = "XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+}
