@@ -181,3 +181,48 @@ foreach ($vmName in @("arc-sql-01", "arc-sql-02")) {
     } -ArgumentList $arcScript, $params
 }
 
+# enable Softare Assurance on the VMs to get BPA to work
+foreach ($vm in @("arc-sql-01", "arc-sql-02")) {
+    $sqlInstanceName = az resource list --resource-group "$PREFIX-rg" `
+        --resource-type "Microsoft.AzureArcData/sqlServerInstances" `
+        --query "[?contains(name, '$vm')].name" -o tsv
+
+    if ($sqlInstanceName) {
+        Write-Host "Setting license type for $sqlInstanceName..."
+        az resource update `
+            --resource-group "$PREFIX-rg" `
+            --resource-type "Microsoft.AzureArcData/sqlServerInstances" `
+            --name $sqlInstanceName `
+            --set "properties.licenseType=Paid" 2>&1
+    }
+}
+
+
+
+## Install BPA Dashboard
+
+# Import the Azure Workbook — use a temp file to avoid command-line length limits
+$workbookJson = Get-Content ".\AzureBPAWorkbook\Azure_SQL_BPA_Dashboard.json" -Raw
+$workbookId = (New-Guid).Guid
+$sourceId = "/subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/$PREFIX-rg/providers/Microsoft.OperationalInsights/workspaces/$PREFIX-law"
+
+$body = @{
+    location   = $LOCATION
+    kind       = "shared"
+    properties = @{
+        displayName    = "Azure SQL BPA Dashboard"
+        category       = "workbook"
+        serializedData = $workbookJson
+        sourceId       = $sourceId
+    }
+} | ConvertTo-Json -Depth 5
+
+$bodyFile = Join-Path $env:TEMP "workbook-body.json"
+[System.IO.File]::WriteAllText($bodyFile, $body)
+
+az rest --method PUT `
+    --uri "https://management.azure.com/subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/$PREFIX-rg/providers/Microsoft.Insights/workbooks/${workbookId}?api-version=2022-04-01" `
+    --body "@$bodyFile"
+
+Remove-Item $bodyFile -ErrorAction SilentlyContinue
+Write-Host "Azure SQL BPA Dashboard workbook deployed." -ForegroundColor Green

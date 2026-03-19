@@ -260,6 +260,47 @@ if (-not $extensionFound) {
     Write-Host '  SQL Server Arc extension is provisioned.' -ForegroundColor Green
 }
 
+# ── Step 6b: Set SQL Server license type to enable BPA ────────────────────────
+Write-Step 'Setting SQL Server license type (required for BPA)'
+
+# Use REST API to update the SQL Server Arc extension license type to "Paid"
+# This is required for BPA — Developer edition with SA license type enables all features
+$tokenObj = Get-AzAccessToken -ResourceUrl "https://management.azure.com"
+$tokenVal = if ($tokenObj.Token -is [System.Security.SecureString]) {
+    [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+        [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($tokenObj.Token))
+} else { $tokenObj.Token }
+
+$extHeaders = @{
+    Authorization  = "Bearer $tokenVal"
+    'Content-Type' = 'application/json'
+}
+
+$extUri = "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName" +
+    "/providers/Microsoft.HybridCompute/machines/$MachineName/extensions/WindowsAgent.SqlServer?api-version=2024-07-10"
+
+try {
+    $extInfo = Invoke-RestMethod -Uri $extUri -Headers $extHeaders -Method Get
+    $currentLicense = $extInfo.properties.settings.LicenseType
+
+    if ($currentLicense -ne 'Paid') {
+        Write-Host "  Current license type: '$currentLicense'. Updating to 'Paid'..." -ForegroundColor Yellow
+        $patchBody = @{
+            properties = @{
+                settings = @{ LicenseType = "Paid" }
+            }
+        } | ConvertTo-Json -Depth 5
+
+        Invoke-RestMethod -Uri $extUri -Headers $extHeaders -Method Patch -Body $patchBody | Out-Null
+        Write-Host "  License type set to 'Paid'." -ForegroundColor Green
+    } else {
+        Write-Host "  License type already set to 'Paid'." -ForegroundColor Green
+    }
+} catch {
+    Write-Host "  Warning: Could not set license type: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "  Set it manually: Azure Portal > Arc server > SQL Server configuration > License type" -ForegroundColor Yellow
+}
+
 # ── Step 7: Enable SQL Best Practices Assessment ──────────────────────────────
 Write-Step 'Enabling SQL Best Practices Assessment on the Arc-enabled SQL Server'
 

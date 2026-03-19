@@ -60,6 +60,12 @@ resource "azurerm_log_analytics_workspace" "bpa" {
   tags                = var.tags
 }
 
+resource "azurerm_role_assignment" "law_contributor" {
+  scope                = azurerm_log_analytics_workspace.bpa.id
+  role_definition_name = "Log Analytics Contributor"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
 resource "random_password" "admin" {
   length           = 20
   special          = true

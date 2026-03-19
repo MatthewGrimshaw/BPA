@@ -1,0 +1,1308 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "crossComponentResources": [
+          "{Subscription}"
+        ],
+        "parameters": [
+          {
+            "id": "5ccbaa77-2a42-4a07-a877-b5a3a6297703",
+            "version": "KqlParameterItem/1.0",
+            "name": "Subscription",
+            "type": 6,
+            "isRequired": true,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "typeSettings": {
+              "additionalResourceOptions": [
+                "value::all"
+              ],
+              "includeAll": true,
+              "showDefault": false
+            },
+            "timeContext": {
+              "durationMs": 86400000
+            },
+            "value": [
+              "value::all"
+            ]
+          },
+          {
+            "id": "feaacaaf-4fdb-4eb0-b9d4-938bd207e97e",
+            "version": "KqlParameterItem/1.0",
+            "name": "ResourceGroup",
+            "label": "Resource Group",
+            "type": 2,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "query": "resourceContainers \r\n| where type == \"microsoft.resources/subscriptions/resourcegroups\"\r\n| join kind = inner (\r\n    resourcecontainers\r\n    | where type == \"microsoft.resources/subscriptions\"\r\n    | project subscriptionId, subscriptionName = name\r\n) on $left.subscriptionId == $right.subscriptionId\r\n| project resourceGroup, name, subscriptionId, subscriptionName\r\n| join kind = inner (\r\n    resources\r\n    | where type == \"microsoft.hybridcompute/machines\"\r\n    | distinct resourceGroup, subscriptionId\r\n) on resourceGroup, subscriptionId\r\n| project value = resourceGroup, label = name, group = subscriptionName",
+            "crossComponentResources": [
+              "{Subscription}"
+            ],
+            "typeSettings": {
+              "additionalResourceOptions": [
+                "value::all"
+              ],
+              "includeAll": true,
+              "selectAllValue": "*",
+              "showDefault": false
+            },
+            "defaultValue": "value::all",
+            "queryType": 1,
+            "resourceType": "microsoft.resourcegraph/resources",
+            "value": [
+              "value::all"
+            ]
+          }
+        ],
+        "style": "pills",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources"
+      },
+      "name": "parameters - 7"
+    },
+    {
+      "type": 11,
+      "content": {
+        "version": "LinkItem/1.0",
+        "style": "tabs",
+        "links": [
+          {
+            "id": "4599a416-0a3d-4288-af5d-7ffd08b079fd",
+            "cellValue": "selMainTab",
+            "linkTarget": "parameter",
+            "linkLabel": "Azure Arc SQL Resources",
+            "subTarget": "Resources",
+            "style": "link"
+          },
+          {
+            "id": "0a250123-23e0-4654-986a-e79aabe8e087",
+            "cellValue": "selMainTab",
+            "linkTarget": "parameter",
+            "linkLabel": "BPA Enterprise Dashboard",
+            "subTarget": "BPADashboard",
+            "style": "link"
+          }
+        ]
+      },
+      "name": "links - 3"
+    },
+    {
+      "type": 12,
+      "content": {
+        "version": "NotebookGroup/1.0",
+        "groupType": "editable",
+        "items": [
+          {
+            "type": 1,
+            "content": {
+              "json": "# Azure Arc SQL Servers - Resources"
+            },
+            "name": "text - 2"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "resources\r\n| where type == \"microsoft.hybridcompute/machines\" and tostring(tags['sqlmanaged']) != 'false'\r\n| extend joinID = toupper(id)\r\n| project joinID\r\n| join kind=inner (\r\n    resources\r\n    | where type == \"microsoft.azurearcdata/sqlserverinstances\" and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n    | extend machineId = toupper(tostring(properties.containerResourceId))\r\n    | project InstanceName = name, Edition = tostring(properties.edition), machineId\r\n) on $left.joinID == $right.machineId\r\n| summarize Instances = count() by Edition",
+              "size": 3,
+              "title": "Instance Editions",
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "visualization": "piechart"
+            },
+            "customWidth": "33",
+            "name": "query - editions"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "resources\r\n| where type == \"microsoft.hybridcompute/machines\" and tostring(tags['sqlmanaged']) != 'false'\r\n| extend joinID = toupper(id)\r\n| project joinID\r\n| join kind=inner (\r\n    resources\r\n    | where type == \"microsoft.azurearcdata/sqlserverinstances\" and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n    | extend machineId = toupper(tostring(properties.containerResourceId))\r\n    | project InstanceName = name, Version = tostring(properties.version), machineId\r\n) on $left.joinID == $right.machineId\r\n| summarize Instances = count() by Version",
+              "size": 3,
+              "title": "Instance Versions",
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "visualization": "piechart"
+            },
+            "customWidth": "33",
+            "name": "query - versions"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "resources\r\n| where type == \"microsoft.hybridcompute/machines\" and tostring(tags['sqlmanaged']) != 'false'\r\n| extend joinID = toupper(id)\r\n| project joinID\r\n| join kind=inner (\r\n    resources\r\n    | where type == \"microsoft.azurearcdata/sqlserverinstances\" and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n    | extend machineId = toupper(tostring(properties.containerResourceId))\r\n    | project InstanceName = name, LicenseType = tostring(properties.licenseType), machineId\r\n) on $left.joinID == $right.machineId\r\n| summarize Instances = count() by LicenseType",
+              "size": 3,
+              "title": "License Types",
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "visualization": "piechart"
+            },
+            "customWidth": "34",
+            "name": "query - licensetypes"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "resources\r\n| where type == \"microsoft.hybridcompute/machines\" and tostring(tags['sqlmanaged']) != 'false'\r\n| extend joinID = toupper(id)\r\n| project joinID\r\n| join kind=inner (\r\n    resources\r\n    | where type == \"microsoft.azurearcdata/sqlserverinstances\" and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n    | extend machineId = toupper(tostring(properties.containerResourceId))\r\n    | project InstanceId = id, InstanceName = name, Version = tostring(properties.version), machineId\r\n) on $left.joinID == $right.machineId\r\n| join kind = inner (\r\nresources\r\n| where type == \"microsoft.azurearcdata/sqlserverinstances/databases\" and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| where name !in (\"master\", \"model\", \"msdb\", \"tempdb\")\r\n| project InstanceId = substring(id, 0, indexof(id, \"Databases\", 0) - 1), DatabaseName = name, CompatibilityLevel = tostring(properties.compatibilityLevel)\r\n) on InstanceId\r\n| project InstanceName\r\n| summarize count() by InstanceName\r\n",
+              "size": 0,
+              "title": "Number of databases per Instance",
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "visualization": "barchart"
+            },
+            "name": "query - dbs-per-instance"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "resources\r\n| where type == \"microsoft.hybridcompute/machines\" and tostring(tags['sqlmanaged']) != 'false'\r\n| extend joinID = toupper(id)\r\n| project joinID\r\n| join kind=inner (\r\n    resources\r\n    | where type == \"microsoft.azurearcdata/sqlserverinstances\" and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n    | extend machineId = toupper(tostring(properties.containerResourceId))\r\n    | project ResourceId = toupper(id), InstanceName = name, properties = tostring(properties), tags, ResourceGroup = strcat('/subscriptions/', subscriptionId, '/resourceGroups/',resourceGroup), Subscription = strcat('/subscriptions/', subscriptionId), machineId\r\n    | extend parsedProperties = parse_json(properties)\r\n    ) on $left.joinID == $right.machineId\r\n    | project\r\n        ResourceId,\r\n        InstanceName = tostring(parsedProperties.instanceName),\r\n        Version = tostring(parsedProperties.version),\r\n        Edition = tostring(parsedProperties.edition),\r\n        BuildNumber = tostring(parsedProperties.patchLevel),\r\n        LicenseType = tostring(parsedProperties.licenseType),\r\n        vCores = tostring(parsedProperties.vCore),\r\n        Collation = tostring(parsedProperties.collation),\r\n        MainstreamSupportEndDate = case(\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '11', '2017-07-11',\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '12', '2019-07-09',\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '13', '2021-07-13',\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '14', '2022-10-11',\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '15', '2025-02-28',\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '16', '2028-01-11',\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '17', '2030-10-14',\r\n            'Unknown'),\r\n        ExtendedSupportEndDate = case(\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '11', '2022-07-12',\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '12', '2024-07-09',\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '13', '2026-07-14',\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '14', '2027-10-12',\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '15', '2030-01-08',\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '16', '2033-01-11',\r\n            substring(tostring(parsedProperties.patchLevel), 0, 2) == '17', '2035-10-14',\r\n            'Unknown'),\r\n        EsuStatus = tostring(parsedProperties.esuStatus),\r\n        Subscription, ResourceGroup",
+              "size": 2,
+              "title": "Instance details",
+              "showExportToExcel": true,
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "MainstreamSupportEndDate",
+                    "formatter": 6,
+                    "dateFormat": {
+                      "showUtcTime": null,
+                      "formatName": "yearMonthPattern"
+                    }
+                  },
+                  {
+                    "columnMatch": "ExtendedSupportEndDate",
+                    "formatter": 6,
+                    "dateFormat": {
+                      "formatName": "yearMonthPattern"
+                    }
+                  },
+                  {
+                    "columnMatch": "LicenseType",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Paid",
+                          "representation": "success",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "Paid"
+                          }
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "PAYG",
+                          "representation": "success",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "Pay-As-You-Go"
+                          }
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "LicenseOnly",
+                          "representation": "success",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "License Only"
+                          }
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "warning",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "{0}"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "columnMatch": "EsuStatus",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Active",
+                          "representation": "success",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "ESU Active"
+                          }
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Inactive",
+                          "representation": "3",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "ESU Inactive"
+                          }
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "N/A",
+                          "representation": "Blank",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "Not Applicable"
+                          }
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "unknown",
+                          "text": "{0}{1}"
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "filter": true
+              }
+            },
+            "name": "query - instance-details",
+            "styleSettings": {
+              "margin": "10px",
+              "padding": "10px"
+            }
+          },
+          {
+            "type": 11,
+            "content": {
+              "version": "LinkItem/1.0",
+              "style": "tabs",
+              "links": [
+                {
+                  "id": "c1d22c7d-96ab-4367-96ac-c916a542b328",
+                  "cellValue": "ErrorsCheck",
+                  "linkTarget": "parameter",
+                  "linkLabel": "All",
+                  "subTarget": "0",
+                  "preText": "All",
+                  "style": "link"
+                },
+                {
+                  "id": "19bbfa1f-850f-4e1c-a5c0-0f46554b5e7b",
+                  "cellValue": "ErrorsCheck",
+                  "linkTarget": "parameter",
+                  "linkLabel": "Errors",
+                  "subTarget": "1",
+                  "style": "link"
+                }
+              ]
+            },
+            "name": "links - 16"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "resources\r\n| where type == \"microsoft.hybridcompute/machines\" and properties['detectedProperties']['mssqldiscovered'] == \"true\" and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup})) and tostring(tags['sqlmanaged']) != 'false'\r\n| extend\r\n    joinID = toupper(id),\r\n    ConnectedMachineProxy = parse_json(properties.agentConfiguration.proxyUrl),\r\n    OsType = tostring(properties.osType)\r\n| join kind=leftouter (\r\n    resources\r\n    | where type == \"microsoft.hybridcompute/machines/extensions\" and name in (\"WindowsAgent.SqlServer\", \"LinuxAgent.SqlServer\") and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n    | extend machineId = toupper(substring(id, 0, indexof(id, '/extensions'))),\r\n        SQLExtensionStatus = parse_json(properties).provisioningState,\r\n        esuLastUpdate = todatetime(parse_json(properties).settings.esuLastUpdatedTimestamp),\r\n        LicenseType = parse_json(properties.settings.LicenseType),\r\n        Version = tostring(properties.typeHandlerVersion)\r\n    | project machineId, name, SQLExtensionStatus, esuLastUpdate, LicenseType, Version\r\n) on $left.joinID == $right.machineId\r\n| join kind=leftouter (\r\n    resources\r\n    | where type == \"microsoft.hybridcompute/machines/extensions\" and name in (\"AzureMonitorWindowsAgent\", \"AzureMonitorLinuxAgent\") and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n    | extend machineId = toupper(substring(id, 0, indexof(id, '/extensions'))),\r\n        MonitoringAgentStatus = parse_json(properties).provisioningState,\r\n        MonitoringAgentProxy = parse_json(properties.settings.proxy.address)\r\n    | project machineId, name, MonitoringAgentStatus, MonitoringAgentProxy\r\n) on $left.joinID == $right.machineId\r\n| project id, OsType, Connected = tostring(properties.status), LicenseType\r\n, SQLExtensionStatus = iif(isnull(SQLExtensionStatus), \"Missing\", tostring(SQLExtensionStatus)), Version\r\n, MonitoringAgentStatus = iif(isnull(MonitoringAgentStatus), \"Missing\", tostring(MonitoringAgentStatus))\r\n, ProxyConsistencyCheck = iff(\r\n    iif(isempty(tostring(MonitoringAgentProxy)), \"No\", tostring(MonitoringAgentProxy))\r\n    == iif(isempty(tostring(ConnectedMachineProxy)), \"No\", tostring(ConnectedMachineProxy)),\r\n    true, false)\r\n, esuLastUpdate\r\n, resourceGroup = strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup)\r\n, subscriptionId = strcat('/subscriptions/', subscriptionId)\r\n| extend ErrorsCheck = iff(Connected == \"Connected\", 0, 1)\r\n    + iif(tostring(LicenseType) in ('Paid', 'PAYG', 'LicenseOnly'), 0, 1)\r\n    + iif(tostring(SQLExtensionStatus) == \"Succeeded\", 0, 1)\r\n    + iif(tostring(MonitoringAgentStatus) == \"Succeeded\", 0, 1)\r\n    + iif(ProxyConsistencyCheck == true, 0, 1)\r\n| where ErrorsCheck >= {ErrorsCheck}\r\n| order by id asc\r\n",
+              "size": 2,
+              "title": "List of ARC machines with SQL Server installed",
+              "showExportToExcel": true,
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "OsType",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Windows",
+                          "representation": "resource",
+                          "text": "Win"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Linux",
+                          "representation": "resource",
+                          "text": "Linux"
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "unknown",
+                          "text": "{0}{1}"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "columnMatch": "Connected",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Connected",
+                          "representation": "success",
+                          "text": ""
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Disconnected",
+                          "representation": "3",
+                          "text": ""
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Expired",
+                          "representation": "4",
+                          "text": ""
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "unknown",
+                          "text": "{0}{1}"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "columnMatch": "LicenseType",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Paid",
+                          "representation": "success",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "Paid"
+                          }
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "PAYG",
+                          "representation": "success",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "Pay-As-You-Go"
+                          }
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "LicenseOnly",
+                          "representation": "success",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "License Only"
+                          }
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "3",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "{0}"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "columnMatch": "SQLExtensionStatus",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Failed",
+                          "representation": "4",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "Failed"
+                          }
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Succeeded",
+                          "representation": "success",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "Installed"
+                          }
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Missing",
+                          "representation": "2",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "Missing"
+                          }
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "unknown",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "{0}"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "columnMatch": "MonitoringAgentStatus",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Failed",
+                          "representation": "4",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "Failed"
+                          }
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Succeeded",
+                          "representation": "success",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "Installed"
+                          }
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Missing",
+                          "representation": "2",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "Missing"
+                          }
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "unknown",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "{0}"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "columnMatch": "ProxyConsistencyCheck",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "1",
+                          "representation": "success",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "Consistent"
+                          }
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "0",
+                          "representation": "3",
+                          "text": "",
+                          "tooltipFormat": {
+                            "tooltip": "Inconsistent"
+                          }
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "unknown",
+                          "text": ""
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "columnMatch": "esuLastUpdate",
+                    "formatter": 6,
+                    "dateFormat": {
+                      "formatName": "shortDateTimePattern"
+                    }
+                  },
+                  {
+                    "columnMatch": "ErrorsCheck",
+                    "formatter": 5
+                  }
+                ],
+                "filter": true,
+                "labelSettings": [
+                  {
+                    "columnId": "id",
+                    "label": "Machine"
+                  },
+                  {
+                    "columnId": "OsType",
+                    "label": "OS"
+                  },
+                  {
+                    "columnId": "Connected",
+                    "label": "Connected"
+                  },
+                  {
+                    "columnId": "LicenseType",
+                    "label": "License"
+                  },
+                  {
+                    "columnId": "SQLExtensionStatus",
+                    "label": "SQL Ext Status"
+                  },
+                  {
+                    "columnId": "Version",
+                    "label": "Ext Version"
+                  },
+                  {
+                    "columnId": "MonitoringAgentStatus",
+                    "label": "AMA Status"
+                  },
+                  {
+                    "columnId": "ProxyConsistencyCheck",
+                    "label": "Proxy Check"
+                  },
+                  {
+                    "columnId": "esuLastUpdate",
+                    "label": "ESU Last Update"
+                  },
+                  {
+                    "columnId": "resourceGroup",
+                    "label": "Resource Group"
+                  },
+                  {
+                    "columnId": "subscriptionId",
+                    "label": "Subscription"
+                  }
+                ]
+              },
+              "sortBy": []
+            },
+            "name": "query - machine-list"
+          }
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "selMainTab",
+        "comparison": "isEqualTo",
+        "value": "Resources"
+      },
+      "name": "group - Resources"
+    },
+    {
+      "type": 12,
+      "content": {
+        "version": "NotebookGroup/1.0",
+        "groupType": "editable",
+        "items": [
+          {
+            "type": 12,
+            "content": {
+              "version": "NotebookGroup/1.0",
+              "groupType": "editable",
+              "items": [
+                {
+                  "type": 1,
+                  "content": {
+                    "json": "# Best Practice Assessment Enterprise Dashboard"
+                  },
+                  "name": "text - 12"
+                }
+              ]
+            },
+            "name": "group - BPA Dashboard"
+          },
+          {
+            "type": 9,
+            "content": {
+              "version": "KqlParameterItem/1.0",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "parameters": [
+                {
+                  "id": "dcb99f1d-23da-4e09-ac19-8653364cf4e3",
+                  "version": "KqlParameterItem/1.0",
+                  "name": "LogAnalyticsWorkspace",
+                  "type": 2,
+                  "description": "Choose all Log Analytics Workspaces to analyze BPA results in one place",
+                  "multiSelect": true,
+                  "quote": "'",
+                  "delimiter": ",",
+                  "query": "resources\r\n| where type =~ 'microsoft.operationalinsights/workspaces'\r\n| project WorkspaceId = id, WorkspaceName = name, subscriptionId\r\n| join kind = inner (\r\n    resourcecontainers\r\n    | where type == \"microsoft.resources/subscriptions\"\r\n    | project subscriptionId, subscriptionName = name\r\n) on $left.subscriptionId == $right.subscriptionId\r\n| join kind = inner (\r\n    resourcecontainers\r\n    | where type == \"microsoft.resources/subscriptions/resourcegroups\"\r\n    and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n    | project subscriptionId, subscriptionName = name\r\n) on $left.subscriptionId == $right.subscriptionId\r\n| project value = WorkspaceId, label = WorkspaceName, group = subscriptionName\r\n| distinct value, label, group",
+                  "crossComponentResources": [
+                    "{Subscription}"
+                  ],
+                  "typeSettings": {
+                    "additionalResourceOptions": [
+                      "value::all"
+                    ],
+                    "showDefault": false
+                  },
+                  "defaultValue": "value::all",
+                  "queryType": 1,
+                  "resourceType": "microsoft.resourcegraph/resources"
+                }
+              ],
+              "style": "pills",
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources"
+            },
+            "name": "parameters - 19"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "SqlAssessment_CL\r\n| extend asmt = parse_csv(RawData), resourceGroup = tostring(split(_ResourceId, \"/\", 4)[0])\r\n| where ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| distinct _ResourceId = toupper(_ResourceId), InstanceName = tostring(asmt[11]), AsmtTime = todatetime(asmt[0]), AsmtId = tostring(asmt[1])\r\n, BPAlink = \r\n        iff(toupper(asmt[11]) == 'MSSQLSERVER',\r\n        strcat(toupper(replace_string(toupper(_ResourceId), 'HYBRIDCOMPUTE/MACHINES', 'AzureArcData/SqlServerInstances'))),\r\n        strcat(toupper(replace_string(toupper(_ResourceId), 'HYBRIDCOMPUTE/MACHINES', 'AzureArcData/SqlServerInstances')), '_', toupper(asmt[11])))\r\n| where isnotempty(AsmtId)\r\n| summarize AsmtTime = strcat(format_datetime(max(AsmtTime), 'yyyy-MM-dd hh:mm tt'), ' UTC'), count() by _ResourceId, InstanceName, AsmtId, BPAlink\r\n| summarize LastRunTime = arg_max(AsmtTime, AsmtId), TotalRuns = count() by _ResourceId, InstanceName, BPAlink\r\n| sort by _ResourceId asc, InstanceName asc",
+              "size": 2,
+              "title": "BPA runs on each server",
+              "showExportToExcel": true,
+              "queryType": 0,
+              "resourceType": "microsoft.operationalinsights/workspaces",
+              "crossComponentResources": [
+                "{LogAnalyticsWorkspace}"
+              ],
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "BPAlink",
+                    "formatter": 7,
+                    "formatOptions": {
+                      "linkTarget": "Resource",
+                      "subTarget": "new_BPAssesment",
+                      "linkLabel": "Open BPA",
+                      "linkIsContextBlade": false
+                    }
+                  },
+                  {
+                    "columnMatch": "LastRunTime",
+                    "formatter": 5,
+                    "formatOptions": {
+                      "linkTarget": "OpenBlade",
+                      "bladeOpenContext": {
+                        "bladeName": "WorkbookViewerBlade",
+                        "extensionName": "AppInsightsExtension",
+                        "bladeJsonParameters": "{\r\n  \"ComponentId\": \"{_ResourceId_column}\",\r\n  \"ResourceIds\": [\r\n    \"{LogAnalyticsWorkspace}\"\r\n  ],\r\n  \"ConfigurationId\": \"Community-Workbooks/Azure Arc/SQL Server\",\r\n  \"NotebookParams\": {\r\n    \"VmResourceId\": \"\\\"{_ResourceId_column}\\\"\",\r\n    \"AssessmentId\": \"\\\"{AsmtId_column}\\\"\",\r\n    \"instanceName\": \"\\\"{InstanceName_column}\\\"\"\r\n  }\r\n}"
+                      }
+                    },
+                    "tooltipFormat": {
+                      "tooltip": "Open BPA details"
+                    }
+                  },
+                  {
+                    "columnMatch": "AsmtId",
+                    "formatter": 5
+                  }
+                ],
+                "filter": true,
+                "labelSettings": [
+                  {
+                    "columnId": "_ResourceId",
+                    "label": "Machine"
+                  }
+                ]
+              },
+              "sortBy": []
+            },
+            "name": "query - bpa-runs"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "SqlAssessment_CL\r\n| extend asmt = parse_csv(RawData), resourceGroup = tostring(split(_ResourceId, \"/\", 4)[0])\r\n| where ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| extend\r\n    AsmtId=tostring(asmt[1]),\r\n    CheckId=tostring(asmt[2]),\r\n    DisplayString=asmt[3],\r\n    Description=tostring(asmt[4]),\r\n    HelpLink=asmt[5],\r\n    TargetType=case(asmt[6] == 1, \"Server\", asmt[6] == 2, \"Database\", \"\"),\r\n    TargetName=tostring(asmt[7]), \r\n    Severity=case(asmt[8] == 30, \"High\", asmt[8] == 20, \"Medium\", asmt[8] == 10, \"Low\", asmt[8] == 0, \"Information\", asmt[8] == 1, \"Warning\", asmt[8] == 2, \"Critical\", \"Passed\"),\r\n    Message=tostring(asmt[9]),\r\n    TagsArr=split(tostring(asmt[10]), \",\"),\r\n    Sev = toint(asmt[8])\r\n| where isnotempty(AsmtId)\r\n| order by CheckId, _ResourceId\r\n| join kind=inner\r\n    (\r\n    SqlAssessment_CL\r\n    | extend asmt = parse_csv(RawData)\r\n    | extend AsmtId=tostring(asmt[1])\r\n    | where isnotempty(AsmtId)\r\n    | summarize arg_max(TimeGenerated, *) by _ResourceId\r\n    | project AsmtId\r\n    ) on AsmtId\r\n| where Sev >= 0\r\n| summarize count() by Severity, Sev\r\n| order by Sev\r\n| project Severity, Count = count_",
+              "size": 3,
+              "title": "Issues by severity",
+              "exportMultipleValues": true,
+              "exportedParameters": [
+                {
+                  "fieldName": "Sev",
+                  "parameterName": "Sev",
+                  "parameterType": 1
+                },
+                {
+                  "fieldName": "Severity",
+                  "parameterName": "severity",
+                  "parameterType": 1
+                }
+              ],
+              "showExportToExcel": true,
+              "queryType": 0,
+              "resourceType": "microsoft.operationalinsights/workspaces",
+              "crossComponentResources": [
+                "{LogAnalyticsWorkspace}"
+              ],
+              "visualization": "table",
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "Severity",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Medium",
+                          "representation": "Sev2",
+                          "text": "Medium"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Information",
+                          "representation": "1",
+                          "text": "Information"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "High",
+                          "representation": "Sev0",
+                          "text": "High"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Low",
+                          "representation": "Sev3",
+                          "text": "Low"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Critical",
+                          "representation": "Sev0",
+                          "text": "Critical"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Passed",
+                          "representation": "success",
+                          "text": "Passed"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Warning",
+                          "representation": "Sev2",
+                          "text": "Warning"
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "unknown",
+                          "text": "Unknown"
+                        }
+                      ],
+                      "customColumnWidthSetting": "16ch"
+                    }
+                  },
+                  {
+                    "columnMatch": "Sev",
+                    "formatter": 8,
+                    "formatOptions": {
+                      "min": 0,
+                      "max": 30,
+                      "palette": "greenRed"
+                    }
+                  }
+                ]
+              },
+              "tileSettings": {
+                "showBorder": false,
+                "titleContent": {
+                  "columnMatch": "Severity",
+                  "formatter": 1
+                },
+                "leftContent": {
+                  "columnMatch": "Count",
+                  "formatter": 12,
+                  "formatOptions": {
+                    "palette": "auto"
+                  },
+                  "numberFormat": {
+                    "unit": 17,
+                    "options": {
+                      "maximumSignificantDigits": 3,
+                      "maximumFractionDigits": 2
+                    }
+                  }
+                }
+              },
+              "chartSettings": {
+                "seriesLabelSettings": [
+                  {
+                    "seriesName": "Medium",
+                    "color": "orange"
+                  },
+                  {
+                    "seriesName": "Low",
+                    "color": "blue"
+                  },
+                  {
+                    "seriesName": "High",
+                    "color": "redBright"
+                  },
+                  {
+                    "seriesName": "Information",
+                    "color": "blueDark"
+                  }
+                ],
+                "ySettings": {
+                  "numberFormatSettings": {
+                    "unit": 0,
+                    "options": {
+                      "style": "decimal",
+                      "useGrouping": true
+                    }
+                  }
+                }
+              }
+            },
+            "customWidth": "50",
+            "name": "query - severity-summary"
+          },
+          {
+            "type": 9,
+            "content": {
+              "version": "KqlParameterItem/1.0",
+              "crossComponentResources": [
+                "{LogAnalyticsWorkspace}"
+              ],
+              "parameters": [
+                {
+                  "id": "c5496ae7-04bc-4702-9392-d22ff836534e",
+                  "version": "KqlParameterItem/1.0",
+                  "name": "filterTags",
+                  "label": "Tags",
+                  "type": 2,
+                  "multiSelect": true,
+                  "quote": "'",
+                  "delimiter": ",",
+                  "query": "let SeverityFilter = dynamic([{severity}]);\r\nSqlAssessment_CL\r\n| extend asmt = parse_csv(RawData), resourceGroup = tostring(split(_ResourceId, \"/\", 4)[0])\r\n| where ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| extend AsmtId=tostring(asmt[1]), \r\nTagsArr=split(tostring(asmt[10]), \",\"), Sev = toint(asmt[8]), TargetType=toint(asmt[6]), TargetName=tostring(asmt[7]), Message=tostring(asmt[9]), CheckId=tostring(asmt[2]), Severity=case(asmt[8] == 30, \"High\", asmt[8] == 20, \"Medium\", asmt[8] == 10, \"Low\", asmt[8] == 0, \"Information\", asmt[8] == 1, \"Warning\", asmt[8] == 2, \"Critical\", \"Passed\")\r\n| where isnotempty(AsmtId) and Sev >= 0 and Severity in (SeverityFilter)\r\n| join kind=inner\r\n    (\r\n    SqlAssessment_CL\r\n    | extend asmt = parse_csv(RawData)\r\n    | extend AsmtId=tostring(asmt[1])\r\n    | where isnotempty(AsmtId)\r\n    | summarize arg_max(TimeGenerated, *) by _ResourceId\r\n    | project AsmtId\r\n    ) on AsmtId\r\n| mv-expand TagsArr\r\n| where TagsArr != 'DefaultRuleset'\r\n| project Tag = tostring(TagsArr), TargetType, TargetName, Message, Sev, CheckId\r\n| distinct * \r\n| summarize Cnt = count() by Tag\r\n| order by Cnt desc\r\n| project value = Tag, label = strcat(Tag, ' (', Cnt, ')')",
+                  "crossComponentResources": [
+                    "{LogAnalyticsWorkspace}"
+                  ],
+                  "typeSettings": {
+                    "additionalResourceOptions": [
+                      "value::all"
+                    ],
+                    "selectAllValue": "*",
+                    "showDefault": false
+                  },
+                  "defaultValue": "value::all",
+                  "queryType": 0,
+                  "resourceType": "microsoft.operationalinsights/workspaces"
+                }
+              ],
+              "style": "pills",
+              "queryType": 0,
+              "resourceType": "microsoft.operationalinsights/workspaces"
+            },
+            "customWidth": "50",
+            "name": "parameters - tags-filter"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let SeverityFilter = dynamic([{severity}]);\r\nSqlAssessment_CL\r\n| extend asmt = parse_csv(RawData), resourceGroup = tostring(split(_ResourceId, \"/\", 4)[0])\r\n| where ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| extend\r\n    AsmtId=tostring(asmt[1]),\r\n    CheckId=tostring(asmt[2]),\r\n    DisplayString=asmt[3],\r\n    Description=tostring(asmt[4]),\r\n    HelpLink=asmt[5],\r\n    TargetType=case(asmt[6] == 1, \"Server\", asmt[6] == 2, \"Database\", \"\"),\r\n    TargetName=tostring(asmt[7]), \r\n    Severity=case(asmt[8] == 30, \"High\", asmt[8] == 20, \"Medium\", asmt[8] == 10, \"Low\", asmt[8] == 0, \"Information\", asmt[8] == 1, \"Warning\", asmt[8] == 2, \"Critical\", \"Passed\"),\r\n    Message=tostring(asmt[9]),\r\n    TagsArr=split(tostring(asmt[10]), \",\"),\r\n    Sev = toint(asmt[8])\r\n| where isnotempty(AsmtId)\r\n| order by CheckId, _ResourceId\r\n| join kind=inner\r\n    (\r\n    SqlAssessment_CL\r\n    | extend asmt = parse_csv(RawData)\r\n    | extend AsmtId=tostring(asmt[1])\r\n    | where isnotempty(AsmtId)\r\n    | summarize arg_max(TimeGenerated, *) by _ResourceId\r\n    | project AsmtId\r\n    ) on AsmtId\r\n| where Severity in (SeverityFilter) and TargetType == \"Server\"\r\n    and (array_length(set_intersect(TagsArr, dynamic([{filterTags}]))) > 0 or \"{filterTags}\" == \"'*'\")\r\n| order by Sev, CheckId\r\n| summarize count() by TargetName \r\n",
+              "size": 3,
+              "title": "Issues by server",
+              "noDataMessage": "No result with the selected Severity",
+              "queryType": 0,
+              "resourceType": "microsoft.operationalinsights/workspaces",
+              "crossComponentResources": [
+                "{LogAnalyticsWorkspace}"
+              ],
+              "visualization": "piechart",
+              "chartSettings": {
+                "seriesLabelSettings": [
+                  {
+                    "seriesName": "Protected",
+                    "color": "green"
+                  },
+                  {
+                    "seriesName": "Unknown",
+                    "color": "gray"
+                  },
+                  {
+                    "seriesName": "Not Protected",
+                    "color": "redBright"
+                  }
+                ]
+              }
+            },
+            "customWidth": "50",
+            "name": "query - issues-by-server"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let SeverityFilter = dynamic([{severity}]);\r\nSqlAssessment_CL\r\n| extend asmt = parse_csv(RawData), resourceGroup = tostring(split(_ResourceId, \"/\", 4)[0])\r\n| where ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| extend\r\n    AsmtId=tostring(asmt[1]),\r\n    CheckId=tostring(asmt[2]),\r\n    DisplayString=asmt[3],\r\n    Description=tostring(asmt[4]),\r\n    HelpLink=asmt[5],\r\n    TargetType=case(asmt[6] == 1, \"Server\", asmt[6] == 2, \"Database\", \"\"),\r\n    TargetName=tostring(asmt[7]), \r\n    Severity=case(asmt[8] == 30, \"High\", asmt[8] == 20, \"Medium\", asmt[8] == 10, \"Low\", asmt[8] == 0, \"Information\", asmt[8] == 1, \"Warning\", asmt[8] == 2, \"Critical\", \"Passed\"),\r\n    Message=tostring(asmt[9]),\r\n    TagsArr=split(tostring(asmt[10]), \",\"),\r\n    Sev = toint(asmt[8])\r\n| where isnotempty(AsmtId)\r\n| order by CheckId, _ResourceId\r\n| join kind=inner\r\n    (\r\n    SqlAssessment_CL\r\n    | extend asmt = parse_csv(RawData)\r\n    | extend AsmtId=tostring(asmt[1])\r\n    | where isnotempty(AsmtId)\r\n    | summarize arg_max(TimeGenerated, *) by _ResourceId\r\n    | project AsmtId\r\n    ) on AsmtId\r\n| where Sev >= 0 and TargetType == \"Database\" and Severity in (SeverityFilter)\r\n    and (array_length(set_intersect(TagsArr, dynamic([{filterTags}]))) > 0 or \"{filterTags}\" == \"'*'\")\r\n| order by Sev, CheckId\r\n| summarize count() by TargetName \r\n",
+              "size": 3,
+              "title": "Issues by Database",
+              "noDataMessage": "No result with the selected Severity",
+              "queryType": 0,
+              "resourceType": "microsoft.operationalinsights/workspaces",
+              "crossComponentResources": [
+                "{LogAnalyticsWorkspace}"
+              ],
+              "visualization": "piechart"
+            },
+            "customWidth": "50",
+            "name": "query - issues-by-database"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let SeverityFilter = dynamic([{severity}]);\r\nSqlAssessment_CL\r\n| extend asmt = parse_csv(RawData), resourceGroup = tostring(split(_ResourceId, \"/\", 4)[0])\r\n| where ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| extend\r\n    AsmtId=tostring(asmt[1]),\r\n    CheckId=tostring(asmt[2]),\r\n    DisplayString=asmt[3],\r\n    Description=tostring(asmt[4]),\r\n    HelpLink=asmt[5],\r\n    TargetType=case(asmt[6] == 1, \"Server\", asmt[6] == 2, \"Database\", \"\"),\r\n    TargetName=tostring(asmt[7]), \r\n    Severity=case(asmt[8] == 30, \"High\", asmt[8] == 20, \"Medium\", asmt[8] == 10, \"Low\", asmt[8] == 0, \"Information\", asmt[8] == 1, \"Warning\", asmt[8] == 2, \"Critical\", \"Passed\"),\r\n    Message=tostring(asmt[9]),\r\n    TagsArr=split(tostring(asmt[10]), \",\"),\r\n    Sev = toint(asmt[8])\r\n| where isnotempty(AsmtId)\r\n| order by CheckId, _ResourceId\r\n| join kind=inner\r\n    (\r\n    SqlAssessment_CL\r\n    | extend asmt = parse_csv(RawData)\r\n    | extend AsmtId=tostring(asmt[1])\r\n    | where isnotempty(AsmtId)\r\n    | summarize arg_max(TimeGenerated, *) by _ResourceId\r\n    | project AsmtId\r\n    ) on AsmtId\r\n| where Sev >= 0 and Severity in (SeverityFilter)\r\n    and (array_length(set_intersect(TagsArr, dynamic([{filterTags}]))) > 0 or \"{filterTags}\" == \"'*'\")\r\n| project Sev, CheckId, Description, _ResourceId, Severity, TargetType, TargetName, Tags=strcat_array(array_slice(TagsArr, 1, -1), ', ')\r\n| summarize count() by Sev, Severity, TargetType, Tags, CheckId, Description\r\n| project Sev, Severity, TargetType, Tags, CheckId, Description, count_\r\n| order by Sev, TargetType, CheckId asc\r\n",
+              "size": 2,
+              "title": "Check summary",
+              "noDataMessage": "No result with the selected Severity",
+              "exportFieldName": "CheckId",
+              "exportParameterName": "CheckId",
+              "queryType": 0,
+              "resourceType": "microsoft.operationalinsights/workspaces",
+              "crossComponentResources": [
+                "{LogAnalyticsWorkspace}"
+              ],
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "Sev",
+                    "formatter": 5
+                  },
+                  {
+                    "columnMatch": "Severity",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Medium",
+                          "representation": "Sev2",
+                          "text": "Medium"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Information",
+                          "representation": "1",
+                          "text": "Information"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "High",
+                          "representation": "Sev0",
+                          "text": "High"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Low",
+                          "representation": "Sev3",
+                          "text": "Low"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Critical",
+                          "representation": "Sev0",
+                          "text": "Critical"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Passed",
+                          "representation": "success",
+                          "text": "Passed"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Warning",
+                          "representation": "Sev2",
+                          "text": "Warning"
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "unknown",
+                          "text": "Unknown"
+                        }
+                      ],
+                      "customColumnWidthSetting": "16ch"
+                    }
+                  },
+                  {
+                    "columnMatch": "Description",
+                    "formatter": 0,
+                    "formatOptions": {
+                      "customColumnWidthSetting": "80%"
+                    }
+                  }
+                ],
+                "filter": true
+              },
+              "sortBy": []
+            },
+            "name": "query - check-summary"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "SqlAssessment_CL\r\n| extend asmt = parse_csv(RawData)\r\n| extend\r\n    AsmtId=tostring(asmt[1]),\r\n    CheckId=tostring(asmt[2]),\r\n    DisplayString=asmt[3],\r\n    Description=tostring(asmt[4]),\r\n    HelpLink=asmt[5],\r\n    TargetType=case(asmt[6] == 1, \"Server\", asmt[6] == 2, \"Database\", \"\"),\r\n    TargetName=tostring(asmt[7]), \r\n    Severity=case(asmt[8] == 30, \"High\", asmt[8] == 20, \"Medium\", asmt[8] == 10, \"Low\", asmt[8] == 0, \"Information\", asmt[8] == 1, \"Warning\", asmt[8] == 2, \"Critical\", \"Passed\"),\r\n    Message=tostring(asmt[9]),\r\n    TagsArr=split(tostring(asmt[10]), \",\"),\r\n    Sev = toint(asmt[8])\r\n| where isnotempty(AsmtId)\r\n| order by CheckId, _ResourceId\r\n| join kind=inner\r\n    (\r\n    SqlAssessment_CL\r\n    | extend asmt = parse_csv(RawData)\r\n    | extend AsmtId=tostring(asmt[1])\r\n    | where isnotempty(AsmtId)\r\n    | summarize arg_max(TimeGenerated, *) by _ResourceId\r\n    | project AsmtId\r\n    ) on AsmtId\r\n| where Sev >= 0 and CheckId == \"{CheckId}\" \r\n| project _ResourceId, TargetName=case(TargetType == \"Server\", TargetName, TargetType == \"Database\", split(TargetName,\":\")[1], \"\")\r\n| summarize count() by _ResourceId\r\n| order by _ResourceId",
+              "size": 2,
+              "title": "Check details",
+              "exportFieldName": "_ResourceId",
+              "exportParameterName": "_ResourceId",
+              "queryType": 0,
+              "resourceType": "microsoft.operationalinsights/workspaces",
+              "crossComponentResources": [
+                "{LogAnalyticsWorkspace}"
+              ],
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "Severity",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Medium",
+                          "representation": "Sev2",
+                          "text": "Medium"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Information",
+                          "representation": "1",
+                          "text": "Information"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "High",
+                          "representation": "Sev0",
+                          "text": "High"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Low",
+                          "representation": "Sev3",
+                          "text": "Low"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Critical",
+                          "representation": "Sev0",
+                          "text": "Critical"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Passed",
+                          "representation": "success",
+                          "text": "Passed"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Warning",
+                          "representation": "Sev2",
+                          "text": "Warning"
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "unknown",
+                          "text": "Unknown"
+                        }
+                      ],
+                      "customColumnWidthSetting": "16ch"
+                    }
+                  }
+                ],
+                "rowLimit": 500,
+                "filter": true
+              },
+              "sortBy": []
+            },
+            "customWidth": "35",
+            "name": "query - check-details"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "SqlAssessment_CL\r\n| extend asmt = parse_csv(RawData)\r\n| extend\r\n    AsmtId=tostring(asmt[1]),\r\n    CheckId=tostring(asmt[2]),\r\n    DisplayString=asmt[3],\r\n    Description=tostring(asmt[4]),\r\n    HelpLink=asmt[5],\r\n    TargetType=case(asmt[6] == 1, \"Server\", asmt[6] == 2, \"Database\", \"\"),\r\n    TargetName=tostring(asmt[7]), \r\n    Severity=case(asmt[8] == 30, \"High\", asmt[8] == 20, \"Medium\", asmt[8] == 10, \"Low\", asmt[8] == 0, \"Information\", asmt[8] == 1, \"Warning\", asmt[8] == 2, \"Critical\", \"Passed\"),\r\n    Message=tostring(asmt[9]),\r\n    TagsArr=split(tostring(asmt[10]), \",\"),\r\n    Sev = toint(asmt[8])\r\n| where isnotempty(AsmtId)\r\n| order by CheckId, _ResourceId\r\n| join kind=inner\r\n    (\r\n    SqlAssessment_CL\r\n    | extend asmt = parse_csv(RawData)\r\n    | extend AsmtId=tostring(asmt[1])\r\n    | where isnotempty(AsmtId)\r\n    | summarize arg_max(TimeGenerated, *) by _ResourceId\r\n    | project AsmtId\r\n    ) on AsmtId\r\n| where Sev >= 0\r\n| project _ResourceId, TargetType, TargetName=case(TargetType == \"Server\", TargetName, TargetType == \"Database\", split(TargetName,\":\")[1], \"\"), Severity, Message, Tags=strcat_array(array_slice(TagsArr, 1, -1), ', '), CheckId, Description, HelpLink = tostring(HelpLink)\r\n| where CheckId == \"{CheckId}\" and _ResourceId == \"{_ResourceId}\" \r\n| order by TargetName asc\r\n",
+              "size": 2,
+              "exportFieldName": "CheckId",
+              "exportParameterName": "CheckId",
+              "queryType": 0,
+              "resourceType": "microsoft.operationalinsights/workspaces",
+              "crossComponentResources": [
+                "{LogAnalyticsWorkspace}"
+              ],
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "_ResourceId",
+                    "formatter": 5
+                  },
+                  {
+                    "columnMatch": "Severity",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Medium",
+                          "representation": "Sev2",
+                          "text": "Medium"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Information",
+                          "representation": "1",
+                          "text": "Information"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "High",
+                          "representation": "Sev0",
+                          "text": "High"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Low",
+                          "representation": "Sev3",
+                          "text": "Low"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Critical",
+                          "representation": "Sev0",
+                          "text": "Critical"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Passed",
+                          "representation": "success",
+                          "text": "Passed"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Warning",
+                          "representation": "Sev2",
+                          "text": "Warning"
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "unknown",
+                          "text": "Unknown"
+                        }
+                      ],
+                      "customColumnWidthSetting": "16ch"
+                    }
+                  },
+                  {
+                    "columnMatch": "Message",
+                    "formatter": 1,
+                    "formatOptions": {
+                      "linkTarget": "GenericDetails",
+                      "linkIsContextBlade": true,
+                      "customColumnWidthSetting": "80%"
+                    }
+                  },
+                  {
+                    "columnMatch": "Tags",
+                    "formatter": 5
+                  },
+                  {
+                    "columnMatch": "CheckId",
+                    "formatter": 5
+                  },
+                  {
+                    "columnMatch": "Description",
+                    "formatter": 5
+                  },
+                  {
+                    "columnMatch": "HelpLink",
+                    "formatter": 5
+                  }
+                ],
+                "filter": true
+              }
+            },
+            "customWidth": "65",
+            "name": "query - check-detail-messages"
+          }
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "selMainTab",
+        "comparison": "isEqualTo",
+        "value": "BPADashboard"
+      },
+      "name": "group - BPA Dashboard"
+    }
+  ],
+  "fallbackResourceIds": [
+    "azure monitor"
+  ],
+  "fromTemplateId": "sentinel-UserWorkbook",
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}
