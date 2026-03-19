@@ -1,35 +1,39 @@
 <#
 .SYNOPSIS
-    Registers an Azure VM running SQL Server with the SQL Server IaaS Agent
+    Registers one or more Azure VMs running SQL Server with the SQL IaaS Agent
     Extension and enables the SQL Best Practices Assessment feature.
 
 .DESCRIPTION
-    This script:
-      1. Registers the Microsoft.SqlVirtualMachine resource provider.
-      2. Registers (or updates) the SQL Server VM with the SQL IaaS Agent
-         Extension in Full management mode.
-      3. Creates or validates the target Log Analytics workspace.
-      4. Enables the SQL Best Practices Assessment, with an optional weekly
-         schedule.
+    This script is designed to be run from your local workstation — it pushes
+    configuration to the VMs via the Azure control plane.  It does NOT need to
+    be executed from inside the VMs.
 
-    The SQL IaaS Agent Extension provides automated patching, automated backup,
-    Azure Key Vault integration, and SQL best practices assessment. Full mode
-    is required for the assessment feature.
+    Prerequisites that must exist before running this script:
+      - The Microsoft.SqlVirtualMachine resource provider must be registered
+        (typically done via Terraform / IaC).
+      - The target Log Analytics workspace must already exist
+        (typically created via Terraform / IaC).
 
-    Run this script from any machine that has the Az PowerShell module installed
-    and the necessary permissions.
+    The script:
+      1. Validates the Microsoft.SqlVirtualMachine provider is registered.
+      2. Validates the Log Analytics workspace exists.
+      3. For each VM: registers (or updates) the SQL VM resource with the
+         SQL IaaS Agent Extension in Full management mode.
+      4. For each VM: enables the SQL Best Practices Assessment, with an
+         optional weekly schedule.
 
 .PARAMETER SubscriptionId
-    The Azure subscription ID that contains the SQL Server VM.
+    The Azure subscription ID that contains the SQL Server VM(s).
 
 .PARAMETER ResourceGroupName
-    The resource group that contains the SQL Server VM.
+    The resource group that contains the SQL Server VM(s).
 
-.PARAMETER VmName
-    The name of the Azure VM running SQL Server.
+.PARAMETER VmNames
+    One or more Azure VM names running SQL Server.
+    Accepts a single name or an array of names for bulk enablement.
 
 .PARAMETER Location
-    The Azure region of the VM (e.g. 'eastus', 'westeurope').
+    The Azure region of the VM(s) (e.g. 'eastus', 'swedencentral').
 
 .PARAMETER SqlLicenseType
     The SQL Server license type. Accepted values: PAYG, AHUB, DR.
@@ -41,7 +45,7 @@
 
 .PARAMETER WorkspaceName
     The name of the Log Analytics workspace used for assessment results.
-    If the workspace does not exist it will be created.
+    Must already exist.
 
 .PARAMETER EnableAssessmentSchedule
     When specified, a weekly assessment schedule is configured.
@@ -57,20 +61,29 @@
     Interval in weeks between scheduled assessments. Default: 1.
 
 .EXAMPLE
-    # Enable the IaaS extension and assessment with defaults
+    # Enable BPA on a single VM
     .\Install-SqlIaaSExtension-BPA.ps1 `
         -SubscriptionId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
         -ResourceGroupName "rg-sql-vms" `
-        -VmName "sql-vm-01" `
+        -VmNames "sql-vm-01" `
         -Location "eastus" `
         -WorkspaceName "law-sql-bpa"
 
 .EXAMPLE
-    # Enable the IaaS extension, assessment, and a weekly Monday 03:00 schedule
+    # Enable BPA on multiple VMs at once
     .\Install-SqlIaaSExtension-BPA.ps1 `
         -SubscriptionId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
         -ResourceGroupName "rg-sql-vms" `
-        -VmName "sql-vm-01" `
+        -VmNames "sql-vm-01","sql-vm-02","sql-vm-03" `
+        -Location "eastus" `
+        -WorkspaceName "law-sql-bpa"
+
+.EXAMPLE
+    # Enable BPA with a weekly Monday 03:00 schedule on multiple VMs
+    .\Install-SqlIaaSExtension-BPA.ps1 `
+        -SubscriptionId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+        -ResourceGroupName "rg-sql-vms" `
+        -VmNames "sql-vm-01","sql-vm-02" `
         -Location "eastus" `
         -WorkspaceName "law-sql-bpa" `
         -EnableAssessmentSchedule `
@@ -78,16 +91,21 @@
         -ScheduleStartTime "03:00"
 
 .NOTES
+    This script runs from your local workstation — all operations use the
+    Azure control plane (Az PowerShell modules). No RDP or local execution
+    on the VM is required.
+
     Prerequisites:
-      - Az PowerShell module (Az.Accounts, Az.SqlVirtualMachine,
+      - Az PowerShell modules (Az.Accounts, Az.SqlVirtualMachine,
         Az.OperationalInsights, Az.Resources).
-      - Permissions: SQL Virtual Machine Contributor or Contributor on the VM's
-        resource group; Log Analytics Contributor on the workspace resource group.
-      - The VM must be running SQL Server 2012 or later.
-      - The SQL Server service account must be a member of the sysadmin role.
-      - Full management mode may restart the SQL Server service; schedule
-        accordingly.
-    
+      - Microsoft.SqlVirtualMachine resource provider must be registered
+        (e.g. via Terraform).
+      - The Log Analytics workspace must already exist (e.g. via Terraform).
+      - Permissions: SQL Virtual Machine Contributor or Contributor on the
+        VM's resource group; Log Analytics Reader on the workspace.
+      - The VM(s) must be running SQL Server 2012 or later.
+      - Full management mode may restart the SQL Server service.
+
     References:
       - https://learn.microsoft.com/azure/azure-sql/virtual-machines/windows/sql-server-iaas-agent-extension-automate-management
       - https://learn.microsoft.com/azure/azure-sql/virtual-machines/windows/sql-assessment-for-sql-vm
@@ -98,11 +116,14 @@ param(
     [Parameter(Mandatory)]
     [string]$SubscriptionId,
 
+    [Parameter()]
+    [string]$TenantId,
+
     [Parameter(Mandatory)]
     [string]$ResourceGroupName,
 
     [Parameter(Mandatory)]
-    [string]$VmName,
+    [string[]]$VmNames,
 
     [Parameter(Mandatory)]
     [string]$Location,
@@ -118,7 +139,7 @@ param(
     [string]$WorkspaceName,
 
     [Parameter()]
-    [switch]$EnableAssessmentSchedule,
+    [bool]$EnableAssessmentSchedule = $true,
 
     [Parameter()]
     [ValidateSet('Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday')]
@@ -173,123 +194,132 @@ Install-RequiredModules
 
 # ── Step 2: Authenticate to Azure ────────────────────────────────────────────
 Write-Step 'Connecting to Azure'
-# If already connected and the correct subscription is active, this is a no-op.
 $context = Get-AzContext
 if (-not $context -or $context.Subscription.Id -ne $SubscriptionId) {
-    Connect-AzAccount -Subscription $SubscriptionId | Out-Null
+    $connectParams = @{ Subscription = $SubscriptionId }
+    if ($TenantId) { $connectParams['TenantId'] = $TenantId }
+    Connect-AzAccount @connectParams | Out-Null
 } else {
     Set-AzContext -Subscription $SubscriptionId | Out-Null
 }
 Write-Host "  Using subscription: $SubscriptionId" -ForegroundColor Green
 
-# ── Step 3: Register the SQL Virtual Machine resource provider ───────────────
-Write-Step 'Registering the Microsoft.SqlVirtualMachine resource provider'
+# ── Step 3: Validate the Microsoft.SqlVirtualMachine resource provider ───────
+Write-Step 'Checking Microsoft.SqlVirtualMachine resource provider'
 $providerState = (Get-AzResourceProvider -ProviderNamespace 'Microsoft.SqlVirtualMachine').RegistrationState |
     Select-Object -First 1
 if ($providerState -ne 'Registered') {
-    Register-AzResourceProvider -ProviderNamespace 'Microsoft.SqlVirtualMachine' | Out-Null
-    Write-Host '  Resource provider registered. Waiting for registration to complete...' -ForegroundColor Yellow
-
-    # Poll until the registration is complete (usually takes <1 minute)
-    do {
-        Start-Sleep -Seconds 15
-        $providerState = (Get-AzResourceProvider -ProviderNamespace 'Microsoft.SqlVirtualMachine').RegistrationState |
-            Select-Object -First 1
-    } while ($providerState -eq 'Registering')
-
-    Write-Host "  Provider state: $providerState" -ForegroundColor Green
-} else {
-    Write-Host '  Microsoft.SqlVirtualMachine already registered.' -ForegroundColor Green
+    Write-Warning "Microsoft.SqlVirtualMachine provider is NOT registered (state: $providerState). Register it via Terraform or: Register-AzResourceProvider -ProviderNamespace 'Microsoft.SqlVirtualMachine'"
+    exit 1
 }
+Write-Host '  Microsoft.SqlVirtualMachine is registered.' -ForegroundColor Green
 
-# ── Step 4: Register VM with the SQL IaaS Agent Extension (Full mode) ────────
-Write-Step "Registering '$VmName' with the SQL IaaS Agent Extension (Full mode)"
-
-$existingSqlVm = Get-AzSqlVM -ResourceGroupName $ResourceGroupName -Name $VmName -ErrorAction SilentlyContinue
-
-if ($null -eq $existingSqlVm) {
-    Write-Host "  SQL VM resource not found. Creating with Full management mode..." -ForegroundColor Yellow
-    New-AzSqlVM `
-        -ResourceGroupName $ResourceGroupName `
-        -Name $VmName `
-        -Location $Location `
-        -LicenseType $SqlLicenseType `
-        -SqlManagementType Full | Out-Null
-    Write-Host '  SQL VM resource created in Full mode.' -ForegroundColor Green
-} else {
-    Write-Host "  Existing SQL VM resource found (management type: $($existingSqlVm.SqlManagementType))." -ForegroundColor Yellow
-    if ($existingSqlVm.SqlManagementType -ne 'Full') {
-        Write-Host '  Upgrading to Full management mode...' -ForegroundColor Yellow
-        Write-Warning 'Upgrading to Full mode may restart the SQL Server service.'
-        Update-AzSqlVM `
-            -ResourceGroupName $ResourceGroupName `
-            -Name $VmName `
-            -SqlManagementType Full | Out-Null
-        Write-Host '  Management mode updated to Full.' -ForegroundColor Green
-    } else {
-        Write-Host '  SQL VM is already in Full management mode.' -ForegroundColor Green
-    }
-}
-
-# ── Step 5: Create or retrieve the Log Analytics workspace ───────────────────
-Write-Step "Ensuring Log Analytics workspace '$WorkspaceName' exists"
-
+# ── Step 4: Validate the Log Analytics workspace exists ──────────────────────
+Write-Step "Validating Log Analytics workspace '$WorkspaceName'"
 $workspace = Get-AzOperationalInsightsWorkspace `
     -ResourceGroupName $WorkspaceResourceGroupName `
     -Name $WorkspaceName `
     -ErrorAction SilentlyContinue
 
 if ($null -eq $workspace) {
-    Write-Host "  Workspace not found. Creating '$WorkspaceName' in '$WorkspaceResourceGroupName'..." -ForegroundColor Yellow
-    $workspace = New-AzOperationalInsightsWorkspace `
-        -ResourceGroupName $WorkspaceResourceGroupName `
-        -Name $WorkspaceName `
-        -Location $Location `
-        -Sku PerGB2018
-    Write-Host '  Log Analytics workspace created.' -ForegroundColor Green
-} else {
-    Write-Host "  Log Analytics workspace '$WorkspaceName' already exists." -ForegroundColor Green
+    Write-Warning "Log Analytics workspace '$WorkspaceName' not found in resource group '$WorkspaceResourceGroupName'. Create it via Terraform or the Azure portal before running this script."
+    exit 1
+}
+Write-Host "  Workspace '$WorkspaceName' found." -ForegroundColor Green
+
+# ── Step 5: Process each VM ──────────────────────────────────────────────────
+$totalVms = $VmNames.Count
+$successCount = 0
+$failedVms = @()
+
+Write-Step "Processing $totalVms VM(s): $($VmNames -join ', ')"
+
+foreach ($VmName in $VmNames) {
+    Write-Host "`n────────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+    Write-Host "  [$($VmNames.IndexOf($VmName) + 1)/$totalVms] Processing VM: $VmName" -ForegroundColor Cyan
+
+    try {
+        # ── Register VM with the SQL IaaS Agent Extension (Full mode) ────────
+        $existingSqlVm = Get-AzSqlVM -ResourceGroupName $ResourceGroupName -Name $VmName -ErrorAction SilentlyContinue
+
+        if ($null -eq $existingSqlVm) {
+            Write-Host "    SQL VM resource not found. Creating with Full management mode..." -ForegroundColor Yellow
+            New-AzSqlVM `
+                -ResourceGroupName $ResourceGroupName `
+                -Name $VmName `
+                -Location $Location `
+                -LicenseType $SqlLicenseType `
+                -SqlManagementType Full | Out-Null
+            Write-Host '    SQL VM resource created in Full mode.' -ForegroundColor Green
+        } else {
+            if ($existingSqlVm.SqlManagement -ne 'Full') {
+                Write-Host "    Upgrading to Full management mode (current: $($existingSqlVm.SqlManagement))..." -ForegroundColor Yellow
+                Write-Warning "    Upgrading to Full mode may restart the SQL Server service on $VmName."
+                Update-AzSqlVM `
+                    -ResourceGroupName $ResourceGroupName `
+                    -Name $VmName `
+                    -SqlManagementType Full | Out-Null
+                Write-Host '    Management mode updated to Full.' -ForegroundColor Green
+            } else {
+                Write-Host '    SQL VM already in Full management mode.' -ForegroundColor Green
+            }
+        }
+
+        # ── Enable SQL Best Practices Assessment via Azure CLI ──────────────
+        # The az sql vm update CLI supports workspace linking in a single call
+        Write-Host "    Enabling assessment and linking workspace..." -ForegroundColor Yellow
+
+        $cliArgs = @(
+            'sql', 'vm', 'update',
+            '-n', $VmName,
+            '-g', $ResourceGroupName,
+            '--enable-assessment', 'true',
+            '--workspace-name', $WorkspaceName,
+            '--workspace-rg', $WorkspaceResourceGroupName,
+            '--agent-rg', $ResourceGroupName
+        )
+
+        if ($EnableAssessmentSchedule) {
+            Write-Host "    Schedule: $ScheduleDayOfWeek at $ScheduleStartTime (every $ScheduleWeeklyInterval week(s))." -ForegroundColor Yellow
+            $cliArgs += '--enable-assessment-schedule', 'true'
+            $cliArgs += '--assessment-day-of-week', $ScheduleDayOfWeek
+            $cliArgs += '--assessment-start-time-local', $ScheduleStartTime
+            $cliArgs += '--assessment-weekly-interval', $ScheduleWeeklyInterval.ToString()
+        }
+
+        $cliResult = az @cliArgs 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "az sql vm update failed: $cliResult"
+        }
+        Write-Host "    Assessment enabled and workspace linked." -ForegroundColor Green
+
+        Write-Host "    BPA enabled successfully on $VmName." -ForegroundColor Green
+        $successCount++
+    }
+    catch {
+        Write-Host "    FAILED on $VmName : $_" -ForegroundColor Red
+        $failedVms += $VmName
+    }
 }
 
-# ── Step 6: Enable SQL Best Practices Assessment ──────────────────────────────
-Write-Step 'Enabling SQL Best Practices Assessment'
+# ── Summary ──────────────────────────────────────────────────────────────────
+Write-Host "`n════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
 
-if ($EnableAssessmentSchedule) {
-    Write-Host "  Enabling assessment with a weekly schedule: $ScheduleDayOfWeek at $ScheduleStartTime (every $ScheduleWeeklyInterval week(s))." -ForegroundColor Yellow
-
-    Update-AzSqlVM `
-        -ResourceGroupName $ResourceGroupName `
-        -Name $VmName `
-        -AssessmentSettingEnable $true `
-        -AssessmentSettingRunImmediately $true `
-        -ScheduleEnable $true `
-        -ScheduleDayOfWeek $ScheduleDayOfWeek `
-        -ScheduleStartTime $ScheduleStartTime `
-        -ScheduleWeeklyInterval $ScheduleWeeklyInterval `
-        -WorkspaceId $workspace.CustomerId.ToString() `
-        -WorkspaceKey (Get-AzOperationalInsightsWorkspaceSharedKey `
-            -ResourceGroupName $WorkspaceResourceGroupName `
-            -Name $WorkspaceName).PrimarySharedKey | Out-Null
+if ($failedVms.Count -gt 0) {
+    Write-Host "[DONE] $successCount/$totalVms VM(s) completed successfully." -ForegroundColor Yellow
+    Write-Host "FAILED VM(s): $($failedVms -join ', ')" -ForegroundColor Red
 } else {
-    Write-Host '  Enabling assessment (no schedule – run on-demand from the Azure portal).' -ForegroundColor Yellow
-
-    Update-AzSqlVM `
-        -ResourceGroupName $ResourceGroupName `
-        -Name $VmName `
-        -AssessmentSettingEnable $true `
-        -AssessmentSettingRunImmediately $true `
-        -WorkspaceId $workspace.CustomerId.ToString() `
-        -WorkspaceKey (Get-AzOperationalInsightsWorkspaceSharedKey `
-            -ResourceGroupName $WorkspaceResourceGroupName `
-            -Name $WorkspaceName).PrimarySharedKey | Out-Null
+    Write-Host "[DONE] $successCount/$totalVms VM(s) completed successfully." -ForegroundColor Green
 }
 
-Write-Host '  SQL Best Practices Assessment enabled successfully.' -ForegroundColor Green
-Write-Host "  Assessment results will appear in Log Analytics workspace: $WorkspaceName" -ForegroundColor Green
-Write-Host '  Results will be available in the Azure portal under your SQL VM > SQL best practices assessment.' -ForegroundColor Green
-
-Write-Host "`n[DONE] SQL IaaS Extension installation and SQL Best Practices Assessment setup complete." -ForegroundColor Cyan
-Write-Host "       Review assessment results in the Azure portal:" -ForegroundColor Cyan
-Write-Host "       https://portal.azure.com/#resource/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.SqlVirtualMachine/sqlVirtualMachines/$VmName/sqlBestPracticesAssessment" -ForegroundColor Cyan
+if ($successCount -gt 0) {
+    Write-Host "`nAssessment results will appear in Log Analytics workspace: $WorkspaceName" -ForegroundColor Green
+    Write-Host "Review results in the Azure portal:" -ForegroundColor Green
+    foreach ($VmName in $VmNames) {
+        if ($VmName -notin $failedVms) {
+            Write-Host "  $VmName : https://portal.azure.com/#resource/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.SqlVirtualMachine/sqlVirtualMachines/$VmName/sqlBestPracticesAssessment" -ForegroundColor DarkCyan
+        }
+    }
+}
 
 #endregion
