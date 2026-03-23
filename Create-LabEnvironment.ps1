@@ -45,28 +45,27 @@ terraform apply -auto-approve
 
 
 
-#### Install SQL IaaS Agent Extension
 
-# Set directory back to script root if currently in terraform directory, since the Install-SqlIaaSExtension-BPA.ps1 script is located in the root of the repo, not in the terraform folder
+
+#### Install SQL IaaS Agent Extension and enable BPA with AMA
+
+# Set directory back to script root if currently in terraform directory
 If(((Get-Location).Path).Split('\')[-1] -eq "terraform") {
     Write-Host "Changing directory to $scriptRoot"
     cd ..
 }
 
-# Check if Install-SqlIaaSExtension-BPA.ps1 exists in the script root directory
-If (-not (Test-Path ".\Install-SqlIaaSExtension-BPA.ps1")) {
-    Write-Error "Install-SqlIaaSExtension-BPA.ps1 not found in $scriptRoot. Make sure you have the latest version of the repo and that the file is not blocked by Windows."
-    exit 1
-}
+# Enable SQL BPA with AMA on all Azure VMs using the Install-SqlIaaSExtension-BPA.ps1 script
+# This handles: SQL VM creation (if needed), Full mode, assessment, schedule, AMA + DCR/DCE, workspace linking
+$azureVmNames = @("sql-bpa-01","sql-bpa-02","sql-bpa-03","sql-bpa-04","sql-bpa-05")
 
-# Single VM
-.\Install-SqlIaaSExtension-BPA.ps1 -SubscriptionId $AZURE_SUBSCRIPTION_ID -TenantId $AZURE_TENANT_ID-ResourceGroupName "$PREFIX-rg" `
-    -VmNames "sql-bpa-01" -Location $LOCATION -WorkspaceName "$PREFIX-law"
-
-# All 5 lab VMs at once
-.\Install-SqlIaaSExtension-BPA.ps1 -SubscriptionId $AZURE_SUBSCRIPTION_ID -TenantId $AZURE_TENANT_ID -ResourceGroupName "$PREFIX-rg" `
-    -VmNames "sql-bpa-01","sql-bpa-02","sql-bpa-03","sql-bpa-04","sql-bpa-05" `
-    -Location $LOCATION -WorkspaceName "$PREFIX-law"
+.\Install-SqlIaaSExtension-BPA.ps1 `
+    -SubscriptionId $AZURE_SUBSCRIPTION_ID `
+    -TenantId $AZURE_TENANT_ID `
+    -ResourceGroupName "$PREFIX-rg" `
+    -VmNames $azureVmNames `
+    -Location $terraform apply -auto-approveLOCATION `
+    -WorkspaceName "$PREFIX-law"
 
 ### Create Hyper-V environment with SQL Servers
 
@@ -181,28 +180,166 @@ foreach ($vmName in @("arc-sql-01", "arc-sql-02")) {
     } -ArgumentList $arcScript, $params
 }
 
-# enable Softare Assurance on the VMs to get BPA to work
-foreach ($vm in @("arc-sql-01", "arc-sql-02")) {
-    $sqlInstanceName = az resource list --resource-group "$PREFIX-rg" `
-        --resource-type "Microsoft.AzureArcData/sqlServerInstances" `
-        --query "[?contains(name, '$vm')].name" -o tsv
+# Configure Arc SQL instances: license type, BPA workspace, schedule, and trigger assessment
+# Uses dynamic discovery since Arc machine names may differ from Hyper-V VM names
+# Configures everything via the WindowsAgent.SqlServer extension settings
+Write-Host "`nConfiguring Arc SQL instances..." -ForegroundColor Cyan
+$env:PYTHONWARNINGS = "ignore::SyntaxWarning"
 
-    if ($sqlInstanceName) {
-        Write-Host "Setting license type for $sqlInstanceName..."
-        az resource update `
-            --resource-group "$PREFIX-rg" `
-            --resource-type "Microsoft.AzureArcData/sqlServerInstances" `
-            --name $sqlInstanceName `
-            --set "properties.licenseType=Paid" 2>&1
-    }
+$lawId = az monitor log-analytics workspace show `
+    --resource-group "$PREFIX-rg" `
+    --workspace-name "$PREFIX-law" `
+    --query id -o tsv
+
+# Get the DCR and DCE created by Terraform for BPA Assessment
+Write-Host "Getting DCR and DCE created by Terraform..." -ForegroundColor Cyan
+$bpaDcrId = az monitor data-collection rule list `
+    --resource-group "$PREFIX-rg" `
+    --query "[?contains(name, 'bpa-dcr')].id" -o tsv 2>$null
+$bpaDceId = az monitor data-collection endpoint list `
+    --resource-group "$PREFIX-rg" `
+    --query "[?contains(name, '$PREFIX-dce')].id" -o tsv 2>$null
+
+if (-not $bpaDcrId -or -not $bpaDceId) {
+    Write-Host "  ERROR: BPA DCR or DCE not found. Ensure 'terraform apply' completed successfully." -ForegroundColor Red
+    exit 1
 }
 
+Write-Host "  Found BPA DCR: $bpaDcrId" -ForegroundColor Green
+Write-Host "  Found BPA DCE: $bpaDceId" -ForegroundColor Green
 
+# Associate BPA DCR and DCE with Arc machines
+$arcMachines = az resource list --resource-group "$PREFIX-rg" `
+    --resource-type "Microsoft.HybridCompute/machines" `
+    --query "[].name" -o tsv
+
+foreach ($machine in $arcMachines) {
+    Write-Host "  Configuring: $machine" -ForegroundColor Yellow
+
+    # Step 1: Install AzureMonitorWindowsAgent extension (required for BPA results upload)
+    $amaExists = az connectedmachine extension show `
+        --machine-name $machine `
+        --resource-group "$PREFIX-rg" `
+        --name "AzureMonitorWindowsAgent" `
+        --query "name" -o tsv 2>$null
+    if (-not $amaExists) {
+        Write-Host "    Installing AzureMonitorWindowsAgent..."
+        az connectedmachine extension create `
+            --machine-name $machine `
+            --resource-group "$PREFIX-rg" `
+            --name "AzureMonitorWindowsAgent" `
+            --publisher "Microsoft.Azure.Monitor" `
+            --type "AzureMonitorWindowsAgent" `
+            --location $LOCATION `
+            --enable-auto-upgrade true 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Host "    WARNING: AMA install failed" -ForegroundColor Red }
+        else { Write-Host "    AMA installed." -ForegroundColor Green }
+    } else {
+        Write-Host "    AMA already installed." -ForegroundColor Green
+    }
+
+    # Step 2: Associate BPA DCR and DCE with the Arc machine
+    $arcMachineId = "/subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/$PREFIX-rg/providers/Microsoft.HybridCompute/machines/$machine"
+    Write-Host "    Creating BPA DCR association..."
+    az monitor data-collection rule association create `
+        --name "arc-bpa-dcr-$machine" `
+        --resource $arcMachineId `
+        --rule-id $bpaDcrId 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Host "    WARNING: BPA DCR association failed" -ForegroundColor Red }
+    else { Write-Host "    BPA DCR associated." -ForegroundColor Green }
+
+    Write-Host "    Creating BPA DCE association..."
+    az monitor data-collection rule association create `
+        --name "configurationAccessEndpoint" `
+        --resource $arcMachineId `
+        --endpoint-id $bpaDceId 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Host "    WARNING: DCE association failed" -ForegroundColor Red }
+    else { Write-Host "    DCE associated." -ForegroundColor Green }
+
+    # Step 3: Configure WindowsAgent.SqlServer extension settings (license type + BPA)
+    $settings = @{
+        LicenseType = "Paid"
+        AssessmentSettings = @{
+            Enable = $true
+            WorkspaceResourceId = $lawId
+            Schedule = @{
+                Enable = $true
+                WeeklyInterval = 1
+                DayOfWeek = "Sunday"
+                StartTime = "02:00"
+            }
+            RunImmediately = $true
+        }
+    } | ConvertTo-Json -Depth 5
+
+    $settingsFile = Join-Path $env:TEMP "arc-ext-settings-$machine.json"
+    [System.IO.File]::WriteAllText($settingsFile, $settings)
+
+    Write-Host "    Updating WindowsAgent.SqlServer extension settings..."
+    $extResult = az connectedmachine extension update `
+        --machine-name $machine `
+        --resource-group "$PREFIX-rg" `
+        --name "WindowsAgent.SqlServer" `
+        --settings "@$settingsFile" 2>&1
+    if ($LASTEXITCODE -ne 0) { Write-Host "    WARNING: Extension update failed: $extResult" -ForegroundColor Red }
+
+    Remove-Item $settingsFile -ErrorAction SilentlyContinue
+
+    # Verify extension settings were applied
+    Write-Host "    Verifying extension settings..."
+    $extLic = az connectedmachine extension show `
+        --machine-name $machine `
+        --resource-group "$PREFIX-rg" `
+        --name "WindowsAgent.SqlServer" `
+        --query "properties.settings.LicenseType" -o tsv 2>$null
+    if ($extLic -eq "Paid") { Write-Host "    Extension LicenseType: Paid" -ForegroundColor Green }
+    else { Write-Host "    WARNING: Extension LicenseType is '$extLic' (expected 'Paid')" -ForegroundColor Red }
+
+    Write-Host "    Done." -ForegroundColor Green
+}
+
+## Associate Performance Counter DCR with Arc machines
+Write-Host "`nAssociating Performance Counter DCR with Arc machines..." -ForegroundColor Cyan
+
+# Get the performance counter DCR created by Terraform
+$perfCounterDcrId = az monitor data-collection rule list `
+    --resource-group "$PREFIX-rg" `
+    --query "[?contains(name, 'perfcounters')].id" -o tsv 2>$null
+
+if ($perfCounterDcrId) {
+    Write-Host "  Found Performance Counter DCR: $perfCounterDcrId" -ForegroundColor Yellow
+
+    # Associate with each Arc machine
+    $arcMachines = az resource list --resource-group "$PREFIX-rg" `
+        --resource-type "Microsoft.HybridCompute/machines" `
+        --query "[].name" -o tsv
+
+    foreach ($machine in $arcMachines) {
+        $arcMachineId = "/subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/$PREFIX-rg/providers/Microsoft.HybridCompute/machines/$machine"
+        
+        Write-Host "    Associating DCR with $machine..."
+        
+        # Associate DCR (DCE association already created earlier with BPA setup)
+        az monitor data-collection rule association create `
+            --name "arc-perf-dcr-$machine" `
+            --resource $arcMachineId `
+            --rule-id $perfCounterDcrId 2>&1 | Out-Null
+        
+        if ($LASTEXITCODE -eq 0) { 
+            Write-Host "      Performance Counter DCR associated." -ForegroundColor Green 
+        } else { 
+            Write-Host "      WARNING: Performance Counter DCR association failed" -ForegroundColor Red 
+        }
+    }
+} else {
+    Write-Host "  WARNING: Performance Counter DCR not found. Run 'terraform apply' first." -ForegroundColor Yellow
+}
 
 ## Install BPA Dashboard
 
 # Import the Azure Workbook — use a temp file to avoid command-line length limits
-$workbookJson = Get-Content ".\AzureBPAWorkbook\Azure_SQL_BPA_Dashboard.json" -Raw
+#$workbookJson = Get-Content ".\AzureBPAWorkbook\Azure_SQL_BPA_Dashboard.json" -Raw
+$workbookJson = Get-Content ".\AzureBPAWorkbook\Azure_Arc_SQL_Dashboard_with_cpu.json" -Raw
 $workbookId = (New-Guid).Guid
 $sourceId = "/subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/$PREFIX-rg/providers/Microsoft.OperationalInsights/workspaces/$PREFIX-law"
 
@@ -210,7 +347,7 @@ $body = @{
     location   = $LOCATION
     kind       = "shared"
     properties = @{
-        displayName    = "Azure SQL BPA Dashboard"
+        displayName    = "Azure SQL BPA Dashboard with CPU"
         category       = "workbook"
         serializedData = $workbookJson
         sourceId       = $sourceId
@@ -226,3 +363,38 @@ az rest --method PUT `
 
 Remove-Item $bodyFile -ErrorAction SilentlyContinue
 Write-Host "Azure SQL BPA Dashboard workbook deployed." -ForegroundColor Green
+
+
+# Associate DCE with Azure VMs (required for custom log ingestion via AMA)
+# Note: DCR associations are created by Terraform, this just adds the DCE endpoint
+Write-Host "\nAssociating BPA DCE with Azure VMs..." -ForegroundColor Cyan
+foreach ($vm in $azureVmNames) {
+    $vmId = "/subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/$PREFIX-rg/providers/Microsoft.Compute/virtualMachines/$vm"
+    az monitor data-collection rule association create `
+        --name "configurationAccessEndpoint" `
+        --resource $vmId `
+        --endpoint-id $bpaDceId 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Host "  WARNING: DCE association failed for $vm" -ForegroundColor Red }
+    else { Write-Host "  DCE associated with $vm" -ForegroundColor Green }
+}
+
+# trigger the BPA assessment on all Azure VMs
+foreach ($vm in @("sql-bpa-01","sql-bpa-02","sql-bpa-03","sql-bpa-04","sql-bpa-05")) {
+    Write-Host "Checking $vm..."
+    $settings = az sql vm show -n $vm -g"$PREFIX-rg"  --query "assessmentSettings" -o tsv
+    if (-not $settings -or $settings -eq "None") {
+        Write-Host "  Assessment not configured - fixing..."
+        az sql vm update -n $vm -g "$PREFIX-rg" `
+            --enable-assessment true `
+            --workspace-name "$PREFIX-law" `
+            --workspace-rg "$PREFIX-rg" `
+            --agent-rg "$PREFIX-rg" 2>&1
+    } else {
+        Write-Host "  Assessment already configured."
+    }
+
+    Write-Host " Starting Assessment. "
+    az sql vm start-assessment -n $vm -g "$PREFIX-rg"
+}
+
+# Arc BPA assessment is triggered automatically via RunImmediately=true in the extension settings above

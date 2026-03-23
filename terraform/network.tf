@@ -7,10 +7,42 @@ resource "azurerm_virtual_network" "main" {
 }
 
 resource "azurerm_subnet" "sql" {
-  name                 = "snet-sql"
-  resource_group_name  = azurerm_resource_group.main.name
-  virtual_network_name = azurerm_virtual_network.main.name
-  address_prefixes     = ["10.0.2.0/24"]
+  name                            = "snet-sql"
+  resource_group_name             = azurerm_resource_group.main.name
+  virtual_network_name            = azurerm_virtual_network.main.name
+  address_prefixes                = ["10.0.2.0/24"]
+  default_outbound_access_enabled = true
+}
+
+resource "azurerm_public_ip" "nat" {
+  name                = "${var.prefix}-nat-pip"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+  tags                = var.tags
+
+  ip_tags = {
+    "FirstPartyUsage" = "/Unprivileged"
+  }
+}
+
+resource "azurerm_nat_gateway" "main" {
+  name                = "${var.prefix}-natgw"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  sku_name            = "Standard"
+  tags                = var.tags
+}
+
+resource "azurerm_nat_gateway_public_ip_association" "main" {
+  nat_gateway_id       = azurerm_nat_gateway.main.id
+  public_ip_address_id = azurerm_public_ip.nat.id
+}
+
+resource "azurerm_subnet_nat_gateway_association" "sql" {
+  subnet_id      = azurerm_subnet.sql.id
+  nat_gateway_id = azurerm_nat_gateway.main.id
 }
 
 resource "azurerm_network_security_group" "sql" {
