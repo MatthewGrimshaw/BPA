@@ -339,7 +339,8 @@ if ($perfCounterDcrId) {
 
 # Import the Azure Workbook — use a temp file to avoid command-line length limits
 #$workbookJson = Get-Content ".\AzureBPAWorkbook\Azure_SQL_BPA_Dashboard.json" -Raw
-$workbookJson = Get-Content ".\AzureBPAWorkbook\Azure_Arc_SQL_Dashboard_with_cpu.json" -Raw
+#$workbookJson = Get-Content ".\AzureBPAWorkbook\Azure_Arc_SQL_Dashboard_with_cpu.json" -Raw
+$workbookJson = Get-Content ".\AzureBPAWorkbook\Azure_Arc_SQL_Dashboard_with_cpu_and_storage.json" -Raw
 $workbookId = (New-Guid).Guid
 $sourceId = "/subscriptions/$AZURE_SUBSCRIPTION_ID/resourceGroups/$PREFIX-rg/providers/Microsoft.OperationalInsights/workspaces/$PREFIX-law"
 
@@ -347,7 +348,7 @@ $body = @{
     location   = $LOCATION
     kind       = "shared"
     properties = @{
-        displayName    = "Azure SQL BPA Dashboard with CPU"
+        displayName    = "Azure SQL BPA Dashboard with CPU & Storage I/O"
         category       = "workbook"
         serializedData = $workbookJson
         sourceId       = $sourceId

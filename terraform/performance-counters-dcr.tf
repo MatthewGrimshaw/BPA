@@ -74,6 +74,19 @@ resource "azurerm_monitor_data_collection_rule" "sql_perf_counters" {
         "\\PhysicalDisk(_Total)\\Disk Reads/sec",
         "\\PhysicalDisk(_Total)\\Disk Writes/sec",
 
+        # System: PhysicalDisk (per-disk for Storage I/O Analysis)
+        "\\PhysicalDisk(*)\\Avg. Disk Queue Length",
+        "\\PhysicalDisk(*)\\% Disk Time",
+        "\\PhysicalDisk(*)\\Avg. Disk Bytes/Read",
+        "\\PhysicalDisk(*)\\Avg. Disk Bytes/Write",
+        "\\PhysicalDisk(*)\\Current Disk Queue Length",
+        "\\PhysicalDisk(*)\\Disk Bytes/sec",
+
+        # SQL Server: Buffer Manager (I/O related)
+        "\\SQLServer:Buffer Manager\\Page reads/sec",
+        "\\SQLServer:Buffer Manager\\Page writes/sec",
+        "\\SQLServer:Buffer Manager\\Readahead pages/sec",
+
         # System: Network Interface
         "\\Network Interface(*)\\Bytes Total/sec"
       ]
