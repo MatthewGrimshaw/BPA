@@ -96,6 +96,14 @@
             "linkLabel": "Storage & I/O Analysis",
             "subTarget": "StorageIO",
             "style": "link"
+          },
+          {
+            "id": "a8b9c0d1-e2f3-4a5b-6c7d-8e9f0a1b2c3d",
+            "cellValue": "selMainTab",
+            "linkTarget": "parameter",
+            "linkLabel": "Migration Assessment",
+            "subTarget": "MigrationAssessment",
+            "style": "link"
           }
         ]
       },
@@ -2175,6 +2183,356 @@
         "value": "StorageIO"
       },
       "name": "group - Storage IO"
+    },
+    {
+      "type": 12,
+      "content": {
+        "version": "NotebookGroup/1.0",
+        "groupType": "editable",
+        "items": [
+          {
+            "type": 1,
+            "content": {
+              "json": "# Migration Assessment\nView migration readiness results collected by the Azure Arc SQL Server agent. Assessment evaluates databases for migration to Azure SQL Database, Azure SQL Managed Instance, and SQL Server on Azure VM.\n\n> Migration assessment must be enabled on your Arc-enabled SQL Server instances. Results are stored in Azure Resource Graph under `microsoft.azurearcdata/sqlserverinstances/databases`."
+            },
+            "name": "text - migration-header"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "resources\r\n| where type == \"microsoft.azurearcdata/sqlserverinstances/databases\"\r\n    and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| where isnotempty(properties.migration)\r\n| extend assessmentStatus = tostring(properties.migration.assessmentStatus)\r\n| summarize Databases = count() by Status = case(\r\n    assessmentStatus == \"Completed\", \"Assessed\",\r\n    assessmentStatus == \"InProgress\", \"In Progress\",\r\n    assessmentStatus == \"Failed\", \"Failed\",\r\n    \"Not Assessed\")\r\n| order by Databases desc",
+              "size": 3,
+              "title": "Assessment Coverage",
+              "noDataMessage": "No migration assessment data found. Ensure migration assessment is enabled on Arc-enabled SQL Server instances.",
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "visualization": "piechart",
+              "chartSettings": {
+                "seriesLabelSettings": [
+                  {
+                    "seriesName": "Assessed",
+                    "color": "green"
+                  },
+                  {
+                    "seriesName": "Not Assessed",
+                    "color": "gray"
+                  },
+                  {
+                    "seriesName": "In Progress",
+                    "color": "blue"
+                  },
+                  {
+                    "seriesName": "Failed",
+                    "color": "redBright"
+                  }
+                ]
+              }
+            },
+            "customWidth": "33",
+            "name": "query - migration-coverage"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "resources\r\n| where type == \"microsoft.azurearcdata/sqlserverinstances/databases\"\r\n    and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| where isnotempty(properties.migration.assessment)\r\n| extend miTarget = parse_json(properties.migration.assessment.targetReadiness.azureSqlManagedInstance)\r\n| extend readiness = tostring(miTarget.readiness)\r\n| summarize Databases = count() by Readiness = case(\r\n    readiness =~ \"Ready\", \"Ready\",\r\n    readiness =~ \"ReadyWithConditions\", \"Ready with Conditions\",\r\n    readiness =~ \"NotReady\", \"Not Ready\",\r\n    \"Unknown\")\r\n| order by Databases desc",
+              "size": 3,
+              "title": "Azure SQL MI Readiness",
+              "noDataMessage": "No MI readiness data available.",
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "visualization": "piechart",
+              "chartSettings": {
+                "seriesLabelSettings": [
+                  {
+                    "seriesName": "Ready",
+                    "color": "green"
+                  },
+                  {
+                    "seriesName": "Ready with Conditions",
+                    "color": "orange"
+                  },
+                  {
+                    "seriesName": "Not Ready",
+                    "color": "redBright"
+                  },
+                  {
+                    "seriesName": "Unknown",
+                    "color": "gray"
+                  }
+                ]
+              }
+            },
+            "customWidth": "33",
+            "name": "query - migration-mi-readiness"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "resources\r\n| where type == \"microsoft.azurearcdata/sqlserverinstances/databases\"\r\n    and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| where isnotempty(properties.migration.assessment)\r\n| extend dbTarget = parse_json(properties.migration.assessment.targetReadiness.azureSqlDatabase)\r\n| extend readiness = tostring(dbTarget.readiness)\r\n| summarize Databases = count() by Readiness = case(\r\n    readiness =~ \"Ready\", \"Ready\",\r\n    readiness =~ \"ReadyWithConditions\", \"Ready with Conditions\",\r\n    readiness =~ \"NotReady\", \"Not Ready\",\r\n    \"Unknown\")\r\n| order by Databases desc",
+              "size": 3,
+              "title": "Azure SQL DB Readiness",
+              "noDataMessage": "No SQL DB readiness data available.",
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "visualization": "piechart",
+              "chartSettings": {
+                "seriesLabelSettings": [
+                  {
+                    "seriesName": "Ready",
+                    "color": "green"
+                  },
+                  {
+                    "seriesName": "Ready with Conditions",
+                    "color": "orange"
+                  },
+                  {
+                    "seriesName": "Not Ready",
+                    "color": "redBright"
+                  },
+                  {
+                    "seriesName": "Unknown",
+                    "color": "gray"
+                  }
+                ]
+              }
+            },
+            "customWidth": "34",
+            "name": "query - migration-sqldb-readiness"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "resources\r\n| where type == \"microsoft.azurearcdata/sqlserverinstances/databases\"\r\n    and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| where isnotempty(properties.migration.assessment)\r\n| extend\r\n    instanceId = tostring(properties.sqlServerInstanceId),\r\n    instanceName = tostring(split(tostring(properties.sqlServerInstanceId), \"/\")[-1]),\r\n    machineName = tostring(split(id, \"/\")[8]),\r\n    dbName = name,\r\n    miReadiness = tostring(properties.migration.assessment.targetReadiness.azureSqlManagedInstance.readiness),\r\n    sqlDbReadiness = tostring(properties.migration.assessment.targetReadiness.azureSqlDatabase.readiness),\r\n    vmReadiness = tostring(properties.migration.assessment.targetReadiness.sqlServerOnAzureVirtualMachine.readiness),\r\n    miIssueCount = array_length(properties.migration.assessment.targetReadiness.azureSqlManagedInstance.issues),\r\n    sqlDbIssueCount = array_length(properties.migration.assessment.targetReadiness.azureSqlDatabase.issues),\r\n    vmIssueCount = array_length(properties.migration.assessment.targetReadiness.sqlServerOnAzureVirtualMachine.issues),\r\n    lastAssessed = tostring(properties.migration.assessment.lastAssessedTime)\r\n| project\r\n    Machine = machineName,\r\n    Database = dbName,\r\n    ['SQL MI'] = case(miReadiness =~ \"Ready\", \"✅ Ready\", miReadiness =~ \"ReadyWithConditions\", \"⚠️ Conditions\", miReadiness =~ \"NotReady\", \"❌ Not Ready\", \"—\"),\r\n    ['SQL DB'] = case(sqlDbReadiness =~ \"Ready\", \"✅ Ready\", sqlDbReadiness =~ \"ReadyWithConditions\", \"⚠️ Conditions\", sqlDbReadiness =~ \"NotReady\", \"❌ Not Ready\", \"—\"),\r\n    ['SQL VM'] = case(vmReadiness =~ \"Ready\", \"✅ Ready\", vmReadiness =~ \"ReadyWithConditions\", \"⚠️ Conditions\", vmReadiness =~ \"NotReady\", \"❌ Not Ready\", \"—\"),\r\n    ['MI Issues'] = iif(isempty(miIssueCount), 0, miIssueCount),\r\n    ['DB Issues'] = iif(isempty(sqlDbIssueCount), 0, sqlDbIssueCount),\r\n    ['VM Issues'] = iif(isempty(vmIssueCount), 0, vmIssueCount),\r\n    ['Last Assessed'] = lastAssessed,\r\n    id\r\n| order by Machine asc, Database asc",
+              "size": 2,
+              "title": "Database Migration Readiness Detail",
+              "noDataMessage": "No migration assessment results found.",
+              "showExportToExcel": true,
+              "exportFieldName": "id",
+              "exportParameterName": "SelectedMigrationDb",
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "MI Issues",
+                    "formatter": 8,
+                    "formatOptions": {
+                      "min": 0,
+                      "max": 10,
+                      "palette": "greenRed"
+                    }
+                  },
+                  {
+                    "columnMatch": "DB Issues",
+                    "formatter": 8,
+                    "formatOptions": {
+                      "min": 0,
+                      "max": 10,
+                      "palette": "greenRed"
+                    }
+                  },
+                  {
+                    "columnMatch": "VM Issues",
+                    "formatter": 8,
+                    "formatOptions": {
+                      "min": 0,
+                      "max": 10,
+                      "palette": "greenRed"
+                    }
+                  },
+                  {
+                    "columnMatch": "id",
+                    "formatter": 5
+                  }
+                ],
+                "filter": true
+              }
+            },
+            "name": "query - migration-detail-grid"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "---\r\n## Migration Issues & Blockers\r\nAggregated view of issues preventing or complicating migration to each Azure SQL target."
+            },
+            "name": "text - migration-issues-header"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "resources\r\n| where type == \"microsoft.azurearcdata/sqlserverinstances/databases\"\r\n    and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| where isnotempty(properties.migration.assessment)\r\n| mv-expand miIssue = properties.migration.assessment.targetReadiness.azureSqlManagedInstance.issues\r\n| extend\r\n    IssueId = tostring(miIssue.issueId),\r\n    Description = tostring(miIssue.description),\r\n    ImpactedFeature = tostring(miIssue.impactedFeature),\r\n    Severity = case(\r\n        tostring(miIssue.severity) =~ \"Error\", \"Blocker\",\r\n        tostring(miIssue.severity) =~ \"Warning\", \"Warning\",\r\n        tostring(miIssue.severity)),\r\n    Target = \"Azure SQL MI\",\r\n    Database = name,\r\n    Machine = tostring(split(id, \"/\")[8])\r\n| where isnotempty(IssueId)\r\n| union (\r\n    resources\r\n    | where type == \"microsoft.azurearcdata/sqlserverinstances/databases\"\r\n        and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n    | where isnotempty(properties.migration.assessment)\r\n    | mv-expand dbIssue = properties.migration.assessment.targetReadiness.azureSqlDatabase.issues\r\n    | extend\r\n        IssueId = tostring(dbIssue.issueId),\r\n        Description = tostring(dbIssue.description),\r\n        ImpactedFeature = tostring(dbIssue.impactedFeature),\r\n        Severity = case(\r\n            tostring(dbIssue.severity) =~ \"Error\", \"Blocker\",\r\n            tostring(dbIssue.severity) =~ \"Warning\", \"Warning\",\r\n            tostring(dbIssue.severity)),\r\n        Target = \"Azure SQL DB\",\r\n        Database = name,\r\n        Machine = tostring(split(id, \"/\")[8])\r\n    | where isnotempty(IssueId)\r\n)\r\n| summarize AffectedDatabases = dcount(strcat(Machine, '/', Database)) by Target, Severity, IssueId, Description, ImpactedFeature\r\n| order by AffectedDatabases desc",
+              "size": 2,
+              "title": "Migration Issues Summary (across all assessed databases)",
+              "noDataMessage": "No migration issues found — all databases may be ready for migration.",
+              "showExportToExcel": true,
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "Severity",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Blocker",
+                          "representation": "Sev0",
+                          "text": "Blocker"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "Warning",
+                          "representation": "Sev2",
+                          "text": "Warning"
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "Sev3",
+                          "text": "{0}{1}"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "columnMatch": "AffectedDatabases",
+                    "formatter": 8,
+                    "formatOptions": {
+                      "min": 1,
+                      "max": 20,
+                      "palette": "yellowOrangeRed"
+                    }
+                  },
+                  {
+                    "columnMatch": "Description",
+                    "formatter": 0,
+                    "formatOptions": {
+                      "customColumnWidthSetting": "50%"
+                    }
+                  }
+                ],
+                "filter": true,
+                "labelSettings": [
+                  {
+                    "columnId": "Target",
+                    "label": "Target Platform"
+                  },
+                  {
+                    "columnId": "IssueId",
+                    "label": "Issue ID"
+                  },
+                  {
+                    "columnId": "ImpactedFeature",
+                    "label": "Impacted Feature"
+                  },
+                  {
+                    "columnId": "AffectedDatabases",
+                    "label": "Affected DBs"
+                  }
+                ]
+              }
+            },
+            "name": "query - migration-issues"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "resources\r\n| where type == \"microsoft.azurearcdata/sqlserverinstances/databases\"\r\n    and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| where isnotempty(properties.migration.assessment)\r\n| extend\r\n    miReadiness = tostring(properties.migration.assessment.targetReadiness.azureSqlManagedInstance.readiness),\r\n    sqlDbReadiness = tostring(properties.migration.assessment.targetReadiness.azureSqlDatabase.readiness),\r\n    vmReadiness = tostring(properties.migration.assessment.targetReadiness.sqlServerOnAzureVirtualMachine.readiness)\r\n| summarize\r\n    MI_Ready = countif(miReadiness =~ \"Ready\"),\r\n    MI_Conditional = countif(miReadiness =~ \"ReadyWithConditions\"),\r\n    MI_NotReady = countif(miReadiness =~ \"NotReady\"),\r\n    DB_Ready = countif(sqlDbReadiness =~ \"Ready\"),\r\n    DB_Conditional = countif(sqlDbReadiness =~ \"ReadyWithConditions\"),\r\n    DB_NotReady = countif(sqlDbReadiness =~ \"NotReady\"),\r\n    VM_Ready = countif(vmReadiness =~ \"Ready\"),\r\n    VM_Conditional = countif(vmReadiness =~ \"ReadyWithConditions\"),\r\n    VM_NotReady = countif(vmReadiness =~ \"NotReady\")\r\n| project\r\n    Target = pack_array(\"Azure SQL MI\", \"Azure SQL DB\", \"SQL Server on VM\"),\r\n    Ready = pack_array(MI_Ready, DB_Ready, VM_Ready),\r\n    Conditional = pack_array(MI_Conditional, DB_Conditional, VM_Conditional),\r\n    NotReady = pack_array(MI_NotReady, DB_NotReady, VM_NotReady)\r\n| mv-expand Target to typeof(string), Ready to typeof(long), Conditional to typeof(long), NotReady to typeof(long)",
+              "size": 3,
+              "title": "Readiness Comparison Across Targets",
+              "noDataMessage": "No assessment data available.",
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "visualization": "barchart",
+              "chartSettings": {
+                "xAxis": "Target",
+                "yAxis": [
+                  "Ready",
+                  "Conditional",
+                  "NotReady"
+                ],
+                "seriesLabelSettings": [
+                  {
+                    "seriesName": "Ready",
+                    "label": "Ready",
+                    "color": "green"
+                  },
+                  {
+                    "seriesName": "Conditional",
+                    "label": "Ready with Conditions",
+                    "color": "orange"
+                  },
+                  {
+                    "seriesName": "NotReady",
+                    "label": "Not Ready",
+                    "color": "redBright"
+                  }
+                ]
+              }
+            },
+            "name": "query - migration-comparison-chart"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "---\r\n## SKU Recommendations\r\nRight-sized SKU recommendations based on performance data collected by the Arc agent."
+            },
+            "name": "text - sku-header"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "resources\r\n| where type == \"microsoft.azurearcdata/sqlserverinstances/databases\"\r\n    and ('*' in ({ResourceGroup}) or resourceGroup in ({ResourceGroup}))\r\n| where isnotempty(properties.migration.skuRecommendation)\r\n| extend\r\n    machineName = tostring(split(id, \"/\")[8]),\r\n    dbName = name,\r\n    miSku = properties.migration.skuRecommendation.azureSqlManagedInstance,\r\n    sqlDbSku = properties.migration.skuRecommendation.azureSqlDatabase,\r\n    vmSku = properties.migration.skuRecommendation.sqlServerOnAzureVirtualMachine\r\n| project\r\n    Machine = machineName,\r\n    Database = dbName,\r\n    ['MI - Service Tier'] = tostring(miSku.serviceTier),\r\n    ['MI - Compute'] = tostring(miSku.computeSize),\r\n    ['MI - Storage GB'] = tostring(miSku.storageMaxSizeInMb),\r\n    ['SQL DB - Service Tier'] = tostring(sqlDbSku.serviceTier),\r\n    ['SQL DB - Compute'] = tostring(sqlDbSku.computeSize),\r\n    ['VM Size'] = tostring(vmSku.virtualMachineSize),\r\n    ['VM - Data Disks'] = tostring(vmSku.dataDiskCount),\r\n    ['VM - Storage GB'] = tostring(vmSku.storageMaxSizeInMb)\r\n| order by Machine asc, Database asc",
+              "size": 2,
+              "title": "SKU Recommendations by Database",
+              "noDataMessage": "No SKU recommendations available. Ensure performance data collection is enabled and sufficient data has been gathered (typically 24+ hours).",
+              "showExportToExcel": true,
+              "queryType": 1,
+              "resourceType": "microsoft.resourcegraph/resources",
+              "crossComponentResources": [
+                "{Subscription}"
+              ],
+              "gridSettings": {
+                "filter": true
+              }
+            },
+            "name": "query - sku-recommendations"
+          }
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "selMainTab",
+        "comparison": "isEqualTo",
+        "value": "MigrationAssessment"
+      },
+      "name": "group - Migration Assessment"
     }
   ],
   "fallbackResourceIds": [
