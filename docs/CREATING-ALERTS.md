@@ -1,277 +1,313 @@
-# Creating Alerts for SQL Server Performance Counters
+# Creating Alerts for SQL BPA Environment
 
-This guide shows how to create Azure Monitor alerts for the SQL Server performance counters being collected.
+This guide defines all Azure Monitor alerts for the SQL Best Practice Assessment environment.
+Alerts cover five categories: SQL performance (critical), SQL performance (warning),
+BPA assessment health, agent & data pipeline health, and capacity.
 
-## Using Azure Portal
+All alerts are implemented as Azure Monitor Scheduled Query Rules against the Log Analytics
+workspace and can be deployed using the `Create-SqlAlerts.ps1` script in the repository root.
 
-### 1. Create Buffer Cache Hit Ratio Alert
+---
 
-```bash
-# Via Azure CLI
-az monitor metrics alert create \
-  --name "SQL Buffer Cache Hit Ratio Low" \
-  --resource-group sql-bpa-lab-rg \
-  --scopes /subscriptions/{subscription-id}/resourceGroups/sql-bpa-lab-rg/providers/Microsoft.OperationalInsights/workspaces/sql-bpa-law \
-  --condition "avg Perf | where CounterName == 'Buffer cache hit ratio' | summarize AggregatedValue = avg(CounterValue) < 95" \
-  --window-size 5m \
-  --evaluation-frequency 5m \
-  --severity 2 \
-  --description "Buffer cache hit ratio below 95% indicates memory pressure"
-```
+## Alert Summary
 
-### 2. Create Scheduled Query Alert (Recommended Approach)
+| # | Alert Name | Category | Sev | Threshold | Window | Eval |
+|---|------------|----------|-----|-----------|--------|------|
+| 1 | Page Life Expectancy Critical | SQL Perf | 1 | < 300s | 5m | 5m |
+| 2 | Deadlocks Detected | SQL Perf | 1 | > 0 | 5m | 5m |
+| 3 | CPU Critical | SQL Perf | 1 | > 95% | 10m | 5m |
+| 4 | Disk Latency Critical | SQL Perf | 1 | > 25ms | 10m | 5m |
+| 5 | OS Memory Exhaustion | SQL Perf | 1 | < 512 MB | 10m | 5m |
+| 6 | AMA Heartbeat Missing | Agent Health | 1 | No beat in 10m | 10m | 5m |
+| 7 | Arc Agent Disconnected | Agent Health | 1 | No beat in 15m | 15m | 5m |
+| 8 | High CPU | SQL Perf | 2 | > 80% | 15m | 5m |
+| 9 | Buffer Cache Hit Ratio Low | SQL Perf | 2 | < 95% | 15m | 5m |
+| 10 | High Disk Latency | SQL Perf | 2 | > 15ms | 10m | 5m |
+| 11 | Excessive Recompilations | SQL Perf | 2 | > 50/sec | 15m | 5m |
+| 12 | Blocking Detected | SQL Perf | 2 | > 3 blocked | 10m | 5m |
+| 13 | Lock Waits High | SQL Perf | 2 | > 10/sec | 10m | 5m |
+| 14 | Full Table Scans High | SQL Perf | 2 | > 100/sec | 15m | 5m |
+| 15 | Memory Pressure | SQL Perf | 2 | < 1024 MB | 15m | 5m |
+| 16 | Disk Queue Building | SQL Perf | 2 | > 2 | 10m | 5m |
+| 17 | BPA Stale Assessment | BPA Health | 2 | No run in 7d | 1d | 1d |
+| 18 | Perf Counter Data Gap | Agent Health | 2 | No data in 30m | 30m | 15m |
+| 19 | High Page Splits | SQL Perf | 3 | > 100/sec | 15m | 5m |
+| 20 | Memory Paging | SQL Perf | 3 | > 50/sec | 10m | 5m |
+| 21 | BPA Critical Findings Spike | BPA Health | 3 | > 20 findings | 1d | 1d |
+| 22 | High User Connections | Capacity | 3 | > 500 | 15m | 5m |
 
-```bash
-# Create action group first (for notifications)
-az monitor action-group create \
-  --name "SQL-Alerts" \
-  --resource-group sql-bpa-lab-rg \
-  --short-name "SQLAlert" \
-  --email-receiver "DBA Team" dba@company.com
+---
 
-# Get the action group ID
-ACTION_GROUP_ID=$(az monitor action-group show \
-  --name "SQL-Alerts" \
-  --resource-group sql-bpa-lab-rg \
-  --query id -o tsv)
+## Category 1: SQL Performance – Critical (Severity 1)
 
-# Create scheduled query alert for Buffer Cache Hit Ratio
-az monitor scheduled-query create \
-  --name "Low Buffer Cache Hit Ratio" \
-  --resource-group sql-bpa-lab-rg \
-  --scopes /subscriptions/{subscription-id}/resourceGroups/sql-bpa-lab-rg/providers/Microsoft.OperationalInsights/workspaces/sql-bpa-law \
-  --condition "avg CounterValue < 95" \
-  --condition-query "Perf | where CounterName == 'Buffer cache hit ratio' | summarize AggregatedValue = avg(CounterValue) by Computer" \
-  --description "Buffer cache hit ratio below 95%" \
-  --evaluation-frequency 5m \
-  --window-size 15m \
-  --severity 2 \
-  --action-groups $ACTION_GROUP_ID
-```
-
-## Recommended Alert Rules
-
-### Critical Alerts (Severity 1)
-
-#### 1. Severe Memory Pressure
+### 1. Page Life Expectancy Critical
 ```kql
 Perf
 | where CounterName == "Page life expectancy"
-| summarize AvgPLE = avg(CounterValue) by Computer
-| where AvgPLE < 300
+| summarize AggregatedValue = avg(CounterValue) by Computer
+| where AggregatedValue < 300
 ```
-**Threshold:** < 300 seconds  
-**Window:** 5 minutes  
-**Action:** Immediate investigation
+**Threshold:** < 300 seconds | **Window:** 5 minutes  
+**Action:** Immediate investigation – SQL Server is actively evicting pages from the buffer pool. Check for memory-hungry queries and whether `max server memory` is configured.
 
-#### 2. Deadlocks Detected
+### 2. Deadlocks Detected
 ```kql
 Perf
 | where CounterName == "Number of Deadlocks/sec"
-| where CounterValue > 0
-| summarize DeadlockCount = sum(CounterValue) by Computer
+| summarize AggregatedValue = sum(CounterValue) by Computer
+| where AggregatedValue > 0
 ```
-**Threshold:** > 0  
-**Window:** 5 minutes  
-**Action:** Review application code
+**Threshold:** > 0 | **Window:** 5 minutes  
+**Action:** Capture deadlock graphs via Extended Events. Review application transaction ordering and lock hints.
 
-#### 3. Critical CPU
+### 3. CPU Critical
 ```kql
 Perf
 | where CounterName == "% Processor Time" and InstanceName == "_Total"
-| summarize AvgCPU = avg(CounterValue) by Computer
-| where AvgCPU > 90
+| summarize AggregatedValue = avg(CounterValue) by Computer
+| where AggregatedValue > 95
 ```
-**Threshold:** > 90%  
-**Window:** 10 minutes  
-**Action:** Immediate investigation
+**Threshold:** > 95% sustained | **Window:** 10 minutes  
+**Action:** Identify top CPU queries via `sys.dm_exec_query_stats`. Check for runaway queries, parallelism issues (MAXDOP), or missing indexes.
 
-### Warning Alerts (Severity 2)
-
-#### 4. High CPU
-```kql
-Perf
-| where CounterName == "% Processor Time" and InstanceName == "_Total"
-| summarize AvgCPU = avg(CounterValue) by Computer
-| where AvgCPU > 80
-```
-**Threshold:** > 80%  
-**Window:** 15 minutes
-
-#### 5. Low Buffer Cache Hit Ratio
-```kql
-Perf
-| where CounterName == "Buffer cache hit ratio"
-| summarize AvgBCHR = avg(CounterValue) by Computer
-| where AvgBCHR < 95
-```
-**Threshold:** < 95%  
-**Window:** 10 minutes
-
-#### 6. High Disk Latency
+### 4. Disk Latency Critical
 ```kql
 Perf
 | where CounterName in ("Avg. Disk sec/Read", "Avg. Disk sec/Write")
 | extend LatencyMs = CounterValue * 1000
-| summarize AvgLatency = avg(LatencyMs) by Computer, CounterName
-| where AvgLatency > 20
+| summarize AggregatedValue = avg(LatencyMs) by Computer, CounterName
+| where AggregatedValue > 25
 ```
-**Threshold:** > 20ms  
-**Window:** 10 minutes
+**Threshold:** > 25ms | **Window:** 10 minutes  
+**Action:** Check disk queue length, IOPS limits, and storage tier. Consider upgrading to Premium SSD or enabling read caching.
 
-#### 7. Excessive Recompilations
+### 5. OS Memory Exhaustion
+```kql
+Perf
+| where CounterName == "Available MBytes"
+| summarize AggregatedValue = avg(CounterValue) by Computer
+| where AggregatedValue < 512
+```
+**Threshold:** < 512 MB | **Window:** 10 minutes  
+**Action:** Check if SQL Server `max server memory` is set correctly (leave at least 4 GB for OS). Review for memory leaks.
+
+---
+
+## Category 2: SQL Performance – Warning (Severity 2)
+
+### 8. High CPU
+```kql
+Perf
+| where CounterName == "% Processor Time" and InstanceName == "_Total"
+| summarize AggregatedValue = avg(CounterValue) by Computer
+| where AggregatedValue > 80
+```
+**Threshold:** > 80% | **Window:** 15 minutes
+
+### 9. Buffer Cache Hit Ratio Low
+```kql
+Perf
+| where CounterName == "Buffer cache hit ratio"
+| summarize AggregatedValue = avg(CounterValue) by Computer
+| where AggregatedValue < 95
+```
+**Threshold:** < 95% | **Window:** 15 minutes
+
+### 10. High Disk Latency
+```kql
+Perf
+| where CounterName in ("Avg. Disk sec/Read", "Avg. Disk sec/Write")
+| extend LatencyMs = CounterValue * 1000
+| summarize AggregatedValue = avg(LatencyMs) by Computer, CounterName
+| where AggregatedValue > 15
+```
+**Threshold:** > 15ms | **Window:** 10 minutes
+
+### 11. Excessive Recompilations
 ```kql
 Perf
 | where CounterName == "SQL Re-Compilations/sec"
-| summarize AvgRecomp = avg(CounterValue) by Computer
-| where AvgRecomp > 10
+| summarize AggregatedValue = avg(CounterValue) by Computer
+| where AggregatedValue > 50
 ```
-**Threshold:** > 10 per second  
-**Window:** 5 minutes
+**Threshold:** > 50 per second | **Window:** 15 minutes
 
-### Informational Alerts (Severity 3)
+### 12. Blocking Detected
+```kql
+Perf
+| where CounterName == "Processes blocked"
+| summarize AggregatedValue = avg(CounterValue) by Computer
+| where AggregatedValue > 3
+```
+**Threshold:** > 3 blocked processes | **Window:** 10 minutes
 
-#### 8. High Page Splits
+### 13. Lock Waits High
+```kql
+Perf
+| where CounterName == "Lock Waits/sec"
+| summarize AggregatedValue = avg(CounterValue) by Computer
+| where AggregatedValue > 10
+```
+**Threshold:** > 10 per second | **Window:** 10 minutes
+
+### 14. Full Table Scans High
+```kql
+Perf
+| where CounterName == "Full Scans/sec"
+| summarize AggregatedValue = avg(CounterValue) by Computer
+| where AggregatedValue > 100
+```
+**Threshold:** > 100 per second | **Window:** 15 minutes
+
+### 15. Memory Pressure
+```kql
+Perf
+| where CounterName == "Available MBytes"
+| summarize AggregatedValue = avg(CounterValue) by Computer
+| where AggregatedValue < 1024
+```
+**Threshold:** < 1024 MB | **Window:** 15 minutes
+
+### 16. Disk Queue Building
+```kql
+Perf
+| where CounterName == "Avg. Disk Queue Length"
+| summarize AggregatedValue = avg(CounterValue) by Computer, InstanceName
+| where AggregatedValue > 2
+```
+**Threshold:** > 2 average queue depth | **Window:** 10 minutes
+
+---
+
+## Category 3: BPA Assessment Health (Severity 2–3)
+
+### 17. BPA Stale Assessment
+```kql
+SqlAssessment_CL
+| summarize LastSeen = max(TimeGenerated) by Computer = tostring(split(RawData, ",")[0])
+| where LastSeen < ago(7d)
+| project Computer, LastSeen, DaysStale = datetime_diff("day", now(), LastSeen)
+```
+**Threshold:** Any server with no BPA run in 7 days | **Window:** 1 day | **Eval:** 1 day  
+**Action:** Check that the BPA assessment schedule is enabled, the DCR association exists, and AMA is healthy.
+
+### 21. BPA Critical Findings Spike
+```kql
+SQLAssessmentRecommendation
+| where TimeGenerated > ago(1d)
+| where RecommendationResult == "Failed"
+| summarize AggregatedValue = count() by Computer
+| where AggregatedValue > 20
+```
+**Threshold:** > 20 failed recommendations per server in 24 hours | **Window:** 1 day | **Eval:** 1 day  
+**Action:** Review the new BPA findings. A spike usually means a configuration change regressed SQL Server settings.
+
+---
+
+## Category 4: Agent & Data Pipeline Health (Severity 1–2)
+
+### 6. AMA Heartbeat Missing
+```kql
+Heartbeat
+| summarize LastBeat = max(TimeGenerated) by Computer
+| where LastBeat < ago(10m)
+| project Computer, LastBeat, MinutesSilent = datetime_diff("minute", now(), LastBeat)
+```
+**Threshold:** No heartbeat in 10 minutes | **Window:** 10 minutes  
+**Action:** Check if the VM is running. Verify AMA extension status. Restart the AMA service if needed.
+
+### 7. Arc Agent Disconnected
+```kql
+Heartbeat
+| where ResourceProvider == "Microsoft.HybridCompute"
+| summarize LastBeat = max(TimeGenerated) by Computer
+| where LastBeat < ago(15m)
+| project Computer, LastBeat, MinutesSilent = datetime_diff("minute", now(), LastBeat)
+```
+**Threshold:** No heartbeat in 15 minutes | **Window:** 15 minutes  
+**Action:** Check network connectivity (outbound HTTPS 443), proxy settings, and the `himds` service on the server.
+
+### 18. Performance Counter Data Gap
+```kql
+Perf
+| where ObjectName startswith "SQLServer:"
+| summarize LastSeen = max(TimeGenerated) by Computer
+| where LastSeen < ago(30m)
+| project Computer, LastSeen, MinutesSilent = datetime_diff("minute", now(), LastSeen)
+```
+**Threshold:** No SQL perf counters in 30 minutes | **Window:** 30 minutes | **Eval:** 15 minutes  
+**Action:** Check perf DCR association and AMA health. Verify the performance counter DCR is associated with the machine.
+
+---
+
+## Category 5: Capacity (Severity 3)
+
+### 19. High Page Splits
 ```kql
 Perf
 | where CounterName == "Page Splits/sec"
-| summarize AvgPageSplits = avg(CounterValue) by Computer
-| where AvgPageSplits > 20
+| summarize AggregatedValue = avg(CounterValue) by Computer
+| where AggregatedValue > 100
 ```
-**Threshold:** > 20 per second  
-**Window:** 15 minutes
+**Threshold:** > 100 per second | **Window:** 15 minutes  
+**Action:** Review index fill factors. Rebuild fragmented indexes.
 
-#### 9. Memory Pages/sec
+### 20. Memory Paging
 ```kql
 Perf
 | where CounterName == "Pages/sec"
-| summarize AvgPages = avg(CounterValue) by Computer
-| where AvgPages > 5
+| summarize AggregatedValue = avg(CounterValue) by Computer
+| where AggregatedValue > 50
 ```
-**Threshold:** > 5  
-**Window:** 10 minutes
+**Threshold:** > 50 per second | **Window:** 10 minutes  
+**Action:** Indicates OS-level memory pressure. Review SQL `max server memory` and total RAM.
 
-## PowerShell Script to Create All Alerts
+### 22. High User Connections
+```kql
+Perf
+| where CounterName == "User Connections"
+| summarize AggregatedValue = max(CounterValue) by Computer
+| where AggregatedValue > 500
+```
+**Threshold:** > 500 concurrent connections | **Window:** 15 minutes  
+**Action:** Check for connection pool exhaustion or connection leaks in applications.
 
-Save this as `Create-SqlAlerts.ps1`:
+---
+
+## Deploying All Alerts
+
+Use the `Create-SqlAlerts.ps1` script in the repository root:
 
 ```powershell
-param(
-    [string]$ResourceGroup = "sql-bpa-lab-rg",
-    [string]$WorkspaceName = "sql-bpa-law",
-    [string]$ActionGroupEmail = "dba@company.com"
-)
+# Deploy all alerts using defaults from terraform.tfvars
+.\Create-SqlAlerts.ps1
 
-$workspaceId = az monitor log-analytics workspace show `
-    --resource-group $ResourceGroup `
-    --workspace-name $WorkspaceName `
-    --query id -o tsv
+# Or specify parameters explicitly
+.\Create-SqlAlerts.ps1 `
+    -ResourceGroupName "sql-bpa-lab-rg" `
+    -WorkspaceName "sql-bpa-law" `
+    -ActionGroupEmail "dba@company.com"
 
-# Create action group
-Write-Host "Creating action group..." -ForegroundColor Cyan
-az monitor action-group create `
-    --name "SQL-Performance-Alerts" `
-    --resource-group $ResourceGroup `
-    --short-name "SQLPerf" `
-    --email-receiver "DBA Team" $ActionGroupEmail
-
-$actionGroupId = az monitor action-group show `
-    --name "SQL-Performance-Alerts" `
-    --resource-group $ResourceGroup `
-    --query id -o tsv
-
-# Alert 1: Low Page Life Expectancy
-Write-Host "Creating Page Life Expectancy alert..." -ForegroundColor Yellow
-az monitor scheduled-query create `
-    --name "Critical - Low Page Life Expectancy" `
-    --resource-group $ResourceGroup `
-    --scopes $workspaceId `
-    --condition "avg CounterValue < 300" `
-    --condition-query "Perf | where CounterName == 'Page life expectancy' | summarize AggregatedValue = avg(CounterValue) by Computer" `
-    --description "Page life expectancy below 300 seconds indicates severe memory pressure" `
-    --evaluation-frequency 5m `
-    --window-size 15m `
-    --severity 1 `
-    --action-groups $actionGroupId
-
-# Alert 2: Deadlocks
-Write-Host "Creating Deadlock alert..." -ForegroundColor Yellow
-az monitor scheduled-query create `
-    --name "Critical - Deadlocks Detected" `
-    --resource-group $ResourceGroup `
-    --scopes $workspaceId `
-    --condition "sum CounterValue > 0" `
-    --condition-query "Perf | where CounterName == 'Number of Deadlocks/sec' | summarize AggregatedValue = sum(CounterValue) by Computer" `
-    --description "Deadlocks detected on SQL Server" `
-    --evaluation-frequency 5m `
-    --window-size 5m `
-    --severity 1 `
-    --action-groups $actionGroupId
-
-# Alert 3: High CPU
-Write-Host "Creating High CPU alert..." -ForegroundColor Yellow
-az monitor scheduled-query create `
-    --name "Warning - High CPU Usage" `
-    --resource-group $ResourceGroup `
-    --scopes $workspaceId `
-    --condition "avg CounterValue > 80" `
-    --condition-query "Perf | where CounterName == '% Processor Time' and InstanceName == '_Total' | summarize AggregatedValue = avg(CounterValue) by Computer" `
-    --description "CPU usage above 80% for extended period" `
-    --evaluation-frequency 5m `
-    --window-size 15m `
-    --severity 2 `
-    --action-groups $actionGroupId
-
-# Alert 4: Low Buffer Cache Hit Ratio
-Write-Host "Creating Buffer Cache Hit Ratio alert..." -ForegroundColor Yellow
-az monitor scheduled-query create `
-    --name "Warning - Low Buffer Cache Hit Ratio" `
-    --resource-group $ResourceGroup `
-    --scopes $workspaceId `
-    --condition "avg CounterValue < 95" `
-    --condition-query "Perf | where CounterName == 'Buffer cache hit ratio' | summarize AggregatedValue = avg(CounterValue) by Computer" `
-    --description "Buffer cache hit ratio below 95%" `
-    --evaluation-frequency 5m `
-    --window-size 10m `
-    --severity 2 `
-    --action-groups $actionGroupId
-
-# Alert 5: High Disk Latency
-Write-Host "Creating Disk Latency alert..." -ForegroundColor Yellow
-az monitor scheduled-query create `
-    --name "Warning - High Disk Latency" `
-    --resource-group $ResourceGroup `
-    --scopes $workspaceId `
-    --condition "avg LatencyMs > 20" `
-    --condition-query "Perf | where CounterName in ('Avg. Disk sec/Read', 'Avg. Disk sec/Write') | extend LatencyMs = CounterValue * 1000 | summarize AggregatedValue = avg(LatencyMs) by Computer" `
-    --description "Disk latency above 20ms" `
-    --evaluation-frequency 5m `
-    --window-size 10m `
-    --severity 2 `
-    --action-groups $actionGroupId
-
-Write-Host "`nAll alerts created successfully!" -ForegroundColor Green
-Write-Host "View alerts at: https://portal.azure.com/#blade/Microsoft_Azure_Monitoring/AzureMonitoringBrowseBlade/alertsV2" -ForegroundColor Cyan
+# Remove all alerts (to recreate or clean up)
+.\Create-SqlAlerts.ps1 -RemoveExisting
 ```
+
+The script creates action groups, deploys all 22 alert rules, and validates each one.
+See `Create-SqlAlerts.ps1` for the full implementation.
+
+---
 
 ## Testing Alerts
 
-### Manually trigger an alert test:
-
-```bash
+```powershell
 # List all alert rules
-az monitor scheduled-query list \
-  --resource-group sql-bpa-lab-rg \
-  --output table
+az monitor scheduled-query list --resource-group sql-bpa-lab-rg --output table
 
 # View alert rule details
-az monitor scheduled-query show \
-  --name "Warning - High CPU Usage" \
-  --resource-group sql-bpa-lab-rg
+az monitor scheduled-query show --name "SQL-BPA-01-PLE-Critical" --resource-group sql-bpa-lab-rg
 
 # View fired alerts
-az monitor metrics alert list \
-  --resource-group sql-bpa-lab-rg
+az monitor alert list --resource-group sql-bpa-lab-rg --output table
 ```
 
 ## Azure Portal Steps
@@ -282,43 +318,62 @@ For those who prefer the portal:
 2. Click **Alerts** in the left menu
 3. Click **+ Create** → **Alert rule**
 4. **Scope**: Select your Log Analytics workspace
-5. **Condition**: Click **Add condition**
-   - Signal type: **Custom log search**
+5. **Condition**: Click **Add condition** → **Custom log search**
    - Paste one of the KQL queries above
    - Set threshold and evaluation frequency
 6. **Actions**: Select or create an action group
 7. **Details**: Name, severity, description
 8. Click **Create alert rule**
 
+## Implementation Order
+
+Deploy alerts in this order for maximum safety:
+
+1. **Agent Health alerts first** (#6, #7, #18) — if agents die, all other alerts go blind
+2. **Critical SQL Performance** (#1–#5) — immediate service impact
+3. **BPA Assessment Health** (#17, #21) — ensures the assessment system itself is working
+4. **Warning SQL Performance** (#8–#16) — tune thresholds after 1–2 weeks of baselining
+5. **Capacity & Informational** (#19, #20, #22) — cost protection and long-term trends
+
 ## Best Practices
 
-1. **Start with Critical Alerts**: Implement deadlock and severe memory pressure alerts first
-2. **Tune Thresholds**: Adjust based on your baseline performance
-3. **Use Action Groups**: Group related alerts to avoid notification fatigue
-4. **Set Proper Severity**: Don't make everything critical
-5. **Include Runbooks**: Link remediation steps in alert descriptions
-6. **Monitor Alert Effectiveness**: Review and adjust based on false positives
+1. **Start with agent health**: If AMA or Arc agent stops, all other alerts go blind
+2. **Baseline before tuning**: Run for 1–2 weeks with warning alerts before adjusting thresholds
+3. **Use action groups**: Separate critical (pager) and warning (email) action groups
+4. **Set proper severity**: Reserve Sev 1 for issues needing immediate human response
+5. **Include runbook links**: Add remediation steps in alert descriptions
+6. **Review weekly**: Check for false positives and adjust thresholds
+7. **Don't alert on everything**: The informational (Sev 3) alerts can feed dashboards instead of paging
 
-## Cost Optimization
+## Cost Estimate
 
-- **Evaluation Frequency**: Default 5-minute intervals balance cost and detection speed
-- **Log Query Alerts**: Charged per evaluation (~$0.10 per rule per month for 5-minute evaluations)
-- **Action Groups**: Email notifications are free; SMS and voice calls have charges
+| Item | Count | Approx. Monthly Cost |
+|------|-------|---------------------|
+| Scheduled Query Rules (5m eval) | 18 | ~$1.80 |
+| Scheduled Query Rules (1d eval) | 2 | ~$0.01 |
+| Scheduled Query Rules (15m eval) | 2 | ~$0.07 |
+| Action Group (email) | 1 | Free |
+| **Total** | **22 rules** | **~$2/month** |
 
 ## Viewing Active Alerts
 
 ```kql
-// Query alert history in Log Analytics
+// Alert history in Log Analytics
 AlertEvidence
 | where TimeGenerated > ago(7d)
 | summarize count() by AlertName, AlertSeverity
 | order by count_ desc
 ```
 
+```kql
+// Alert health overview - which alerts fired most
+AlertInfo
+| where TimeGenerated > ago(30d)
+| summarize FireCount = count() by AlertName, Severity
+| order by FireCount desc
+```
+
 ## Integration with Azure Workbooks
 
-Create a custom Workbook to display:
-- Current alert status
-- Alert history trends
-- Performance metrics alongside alert thresholds
-- See `PERFORMANCE-COUNTERS.md` for KQL query examples
+The Azure Workbook dashboards in `AzureBPAWorkbook/` can display alert data alongside performance metrics.
+See `PERFORMANCE-COUNTERS.md` for KQL query examples used in dashboards.
