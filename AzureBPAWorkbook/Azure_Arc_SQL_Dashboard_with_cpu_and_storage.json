@@ -2670,50 +2670,50 @@
                     "links": [
                       {
                         "id": "a6e9167d-0e74-4297-bdbf-8d6417a4b060",
-                        "cellValue": "cost",
+                        "cellValue": "selectedTab",
                         "linkTarget": "parameter",
                         "linkLabel": "Cost Comparison",
-                        "subTarget": "selectedTab",
+                        "subTarget": "cost",
                         "style": "link"
                       },
                       {
                         "id": "0603d347-b3e5-4531-ae9e-b39c8cfe72d4",
-                        "cellValue": "settings",
+                        "cellValue": "selectedTab",
                         "linkTarget": "parameter",
                         "linkLabel": "Settings",
-                        "subTarget": "selectedTab",
+                        "subTarget": "settings",
                         "style": "link"
                       },
                       {
                         "id": "ab5a5ead-8271-4062-be3c-f0b18fa42917",
-                        "cellValue": "mi",
+                        "cellValue": "selectedTab",
                         "linkTarget": "parameter",
                         "linkLabel": "SQL Managed Instance",
-                        "subTarget": "selectedTab",
+                        "subTarget": "mi",
                         "style": "link"
                       },
                       {
                         "id": "b5db3ba9-0140-4551-bc32-b44d5924ac09",
-                        "cellValue": "db",
+                        "cellValue": "selectedTab",
                         "linkTarget": "parameter",
                         "linkLabel": "SQL Database",
-                        "subTarget": "selectedTab",
+                        "subTarget": "db",
                         "style": "link"
                       },
                       {
                         "id": "aa1ccb8d-9636-4ef4-8e74-e9e5df46217f",
-                        "cellValue": "vm",
+                        "cellValue": "selectedTab",
                         "linkTarget": "parameter",
                         "linkLabel": "SQL Virtual Machine",
-                        "subTarget": "selectedTab",
+                        "subTarget": "vm",
                         "style": "link"
                       },
                       {
                         "id": "a04da58f-c5de-4d03-bf76-791a8c212e34",
-                        "cellValue": "issues",
+                        "cellValue": "selectedTab",
                         "linkTarget": "parameter",
                         "linkLabel": "Assessment Issues",
-                        "subTarget": "selectedTab",
+                        "subTarget": "issues",
                         "style": "link"
                       }
                     ]
