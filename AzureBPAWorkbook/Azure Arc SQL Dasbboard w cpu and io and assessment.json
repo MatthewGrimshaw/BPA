@@ -4196,7 +4196,7 @@
           {
             "type": 1,
             "content": {
-              "json": "# Azure Updates for SQL Hosts"
+              "json": "# Azure Updates"
             },
             "name": "text - updates-header"
           },
@@ -4212,12 +4212,50 @@
                   "type": 1,
                   "isHiddenWhenLocked": true,
                   "value": "All"
+                },
+                {
+                  "id": "updates-section-default",
+                  "version": "KqlParameterItem/1.0",
+                  "name": "UpdatesSection",
+                  "type": 1,
+                  "isHiddenWhenLocked": true,
+                  "value": "patches"
                 }
               ],
               "style": "pills"
             },
             "name": "parameters - updates-selection"
           },
+          {
+            "type": 11,
+            "content": {
+              "version": "LinkItem/1.0",
+              "style": "tabs",
+              "links": [
+                {
+                  "cellValue": "UpdatesSection",
+                  "linkTarget": "parameter",
+                  "linkLabel": "Update assessments",
+                  "subTarget": "patches",
+                  "style": "link"
+                },
+                {
+                  "cellValue": "UpdatesSection",
+                  "linkTarget": "parameter",
+                  "linkLabel": "Extended Security Updates (ESU)",
+                  "subTarget": "esu",
+                  "style": "link"
+                }
+              ]
+            },
+            "name": "links - updates-sections"
+          },
+          {
+            "type": 12,
+            "content": {
+              "version": "NotebookGroup/1.0",
+              "groupType": "editable",
+              "items": [
           {
             "type": 3,
             "content": {
@@ -4419,6 +4457,101 @@
             },
             "customWidth": "100",
             "name": "query - updates-details"
+          }
+              ]
+            },
+            "conditionalVisibility": {
+              "parameterName": "UpdatesSection",
+              "comparison": "isEqualTo",
+              "value": "patches"
+            },
+            "name": "group - updates-assessments"
+          },
+          {
+            "type": 12,
+            "content": {
+              "version": "NotebookGroup/1.0",
+              "groupType": "editable",
+              "items": [
+                {
+                  "type": 1,
+                  "content": {
+                    "json": "## Extended Security Updates for Arc machines"
+                  },
+                  "name": "text - updates-esu-scope"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "resources\n| where type =~ 'microsoft.hybridcompute/machines'\n| where ('*' in ({ResourceGroup}) or resourceGroup in~ ({ResourceGroup}))\n| extend Esu = properties.licenseProfile.esuProfile\n| project Machine = name, OS = coalesce(tostring(properties.osSku), tostring(properties.osName), 'Not reported'), OSType = tostring(properties.osType),\n    ArcStatus = coalesce(tostring(properties.status), 'Not reported'),\n    Eligibility = coalesce(tostring(Esu.esuEligibility), 'Not reported'),\n    LicenseAssignment = coalesce(tostring(Esu.licenseAssignmentState), 'Not reported'),\n    EsuKeyState = coalesce(tostring(Esu.esuKeyState), 'Not reported'),\n    LicenseState = coalesce(tostring(Esu.assignedLicense.properties.licenseDetails.state), 'Not reported'),\n    LicenseTarget = coalesce(tostring(Esu.assignedLicense.properties.licenseDetails.target), 'Not reported'),\n    AssignedLicenseId = tostring(Esu.assignedLicense.id),\n    ResourceGroup = resourceGroup, Subscription = subscriptionId, MachineId = id\n| order by Machine asc",
+                    "size": 3,
+                    "title": "Windows Server ESU: Reported Arc Machine Eligibility and License State",
+                    "queryType": 1,
+                    "resourceType": "microsoft.resourcegraph/resources",
+                    "crossComponentResources": ["{Subscription}"],
+                    "visualization": "table",
+                    "showExportToExcel": true,
+                    "noDataMessage": "No Arc machines returned. Check selected subscriptions/resource groups and read permissions. Missing ESU fields do not establish licensing or update coverage.",
+                    "gridSettings": {
+                      "filter": true,
+                      "formatters": [
+                        {
+                          "columnMatch": "MachineId",
+                          "formatter": 7,
+                          "formatOptions": {
+                            "linkTarget": "Resource",
+                            "linkLabel": "Open machine",
+                            "linkIsContextBlade": false
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "name": "query - updates-esu-windows"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "resources\n| where type =~ 'microsoft.hybridcompute/machines'\n| where ('*' in ({ResourceGroup}) or resourceGroup in~ ({ResourceGroup}))\n| project MachineId = tolower(id), Machine = name, ResourceGroup = resourceGroup, Subscription = subscriptionId,\n    ArcStatus = tostring(properties.status), SqlDiscovered = tostring(properties.detectedProperties.mssqldiscovered)\n| join kind=leftouter (\n    resources\n    | where type =~ 'microsoft.hybridcompute/machines/extensions'\n    | where properties.type in~ ('WindowsAgent.SqlServer', 'LinuxAgent.SqlServer')\n    | extend MachineId = tostring(split(tolower(id), '/extensions/')[0])\n    | project MachineId, ExtensionState = tostring(properties.provisioningState),\n        ExtensionVersion = tostring(properties.typeHandlerVersion),\n        ReportedEsuSetting = tostring(properties.settings.enableExtendedSecurityUpdates),\n        SqlLicenseType = tostring(properties.settings.LicenseType),\n        EsuSettingLastUpdated = todatetime(properties.settings.esuLastUpdatedTimestamp),\n        ExcludedInstances = tostring(properties.settings.ExcludedSqlInstances),\n        PhysicalCoreEsuApplied = tostring(properties.settings.UseEsuPhysicalCoreLicense.IsApplied)\n) on MachineId\n| extend EsuSubscriptionSetting = case(ReportedEsuSetting =~ 'true', 'Enabled', ReportedEsuSetting =~ 'false', 'Disabled', 'Not reported')\n| project Machine, ArcStatus, SqlDiscovered, EsuSubscriptionSetting,\n    SqlLicenseType = coalesce(SqlLicenseType, 'Not reported'),\n    ExtensionState = coalesce(ExtensionState, 'Not reported'), ExtensionVersion,\n    EsuSettingLastUpdated, PhysicalCoreEsuApplied, ExcludedInstances,\n    ResourceGroup, Subscription, MachineId\n| order by Machine asc",
+                    "size": 3,
+                    "title": "SQL Server ESU: Reported Host Subscription Configuration",
+                    "queryType": 1,
+                    "resourceType": "microsoft.resourcegraph/resources",
+                    "crossComponentResources": ["{Subscription}"],
+                    "visualization": "table",
+                    "showExportToExcel": true,
+                    "noDataMessage": "No Arc machines returned. SQL ESU settings require SQL extension inventory and read permissions. An enabled host setting does not establish eligibility or coverage for every SQL instance, especially excluded instances.",
+                    "gridSettings": {"filter": true, "formatters": []}
+                  },
+                  "name": "query - updates-esu-sql"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "resources\n| where type in~ ('microsoft.hybridcompute/licenses', 'microsoft.azurearcdata/sqlserveresulicenses')\n| where type !~ 'microsoft.hybridcompute/licenses' or tostring(properties.licenseType) =~ 'ESU'\n| where ('*' in ({ResourceGroup}) or resourceGroup in~ ({ResourceGroup}))\n| extend Product = iff(type =~ 'microsoft.hybridcompute/licenses', 'Windows Server ESU', 'SQL Server ESU')\n| project License = name, Product,\n    State = coalesce(tostring(properties.licenseDetails.state), tostring(properties.activationState), 'Not reported'),\n    TargetVersion = coalesce(tostring(properties.licenseDetails.target), tostring(properties.version), 'Not reported'),\n    Edition = tostring(properties.licenseDetails.edition),\n    CoreType = tostring(properties.licenseDetails.type), Processors = toint(properties.licenseDetails.processors),\n    PhysicalCores = toint(properties.physicalCores), BillingPlan = tostring(properties.billingPlan),\n    LicenseScope = tostring(properties.scopeType), ActivatedAt = todatetime(properties.activatedAt),\n    TerminatedAt = todatetime(properties.terminatedAt), ResourceGroup = resourceGroup,\n    Subscription = subscriptionId, LicenseId = id\n| order by Product asc, License asc",
+                    "size": 3,
+                    "title": "Windows Server and SQL Server ESU License Resources (Independent Inventory)",
+                    "queryType": 1,
+                    "resourceType": "microsoft.resourcegraph/resources",
+                    "crossComponentResources": ["{Subscription}"],
+                    "visualization": "table",
+                    "showExportToExcel": true,
+                    "noDataMessage": "No ESU license resources returned in the selected scope. This does not prove machines lack ESU coverage: licenses can be shared, held in another resource group, or use another entitlement path.",
+                    "gridSettings": {"filter": true, "formatters": []}
+                  },
+                  "name": "query - updates-esu-licenses"
+                }
+              ]
+            },
+            "conditionalVisibility": {
+              "parameterName": "UpdatesSection",
+              "comparison": "isEqualTo",
+              "value": "esu"
+            },
+            "name": "group - updates-esu"
           }
         ]
       },
@@ -5093,7 +5226,7 @@
                                 "version": "KqlItem/1.0",
                                 "query": "ConfigurationData\n| where TimeGenerated > ago({WinSwTimeRange})\n| where ConfigDataType == 'Software' and SoftwareType =~ 'Application'\n| where '{WinMachineId}' != 'All' and tolower(_ResourceId) == '{WinMachineId}'\n| summarize arg_max(TimeGenerated, *) by SoftwareName\n| project Software = SoftwareName, Publisher, Version = CurrentVersion, LastReported = TimeGenerated\n| order by Software asc",
                                 "size": 3,
-                                "title": "Installed software: Change Tracking inventory",
+                                "title": "Software inventory",
                                 "queryType": 0,
                                 "resourceType": "microsoft.operationalinsights/workspaces",
                                 "crossComponentResources": [
@@ -5187,6 +5320,82 @@
                     }
                   },
                   "name": "win-bl-tiles"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "resources\n| where type in~ ('microsoft.hybridcompute/machines', 'microsoft.compute/virtualmachines')\n| where properties.osType =~ 'windows' or properties.storageProfile.osDisk.osType =~ 'windows'\n| project MachineId = tolower(id)\n| join kind=inner (\n    resources\n    | where type in~ ('microsoft.sqlvirtualmachine/sqlvirtualmachines', 'microsoft.azurearcdata/sqlserverinstances', 'microsoft.hybridcompute/machines')\n    | where type !~ 'microsoft.hybridcompute/machines' or tostring(properties.detectedProperties.mssqldiscovered) =~ 'true'\n    | extend MachineId = tolower(case(type =~ 'microsoft.sqlvirtualmachine/sqlvirtualmachines', tostring(properties.virtualMachineResourceId), type =~ 'microsoft.azurearcdata/sqlserverinstances', tostring(properties.containerResourceId), id))\n    | where MachineId matches regex '^/subscriptions/[^/]+/resourcegroups/[^/]+/providers/microsoft[.](compute/virtualmachines|hybridcompute/machines)/[^/]+$'\n    | extend MachineResourceGroup = tostring(split(MachineId, '/')[4])\n    | where ('*' in ({ResourceGroup}) or MachineResourceGroup in~ ({ResourceGroup}))\n    | summarize by MachineId\n) on MachineId\n| project MachineId\n| join kind=inner (\n    guestconfigurationresources\n    | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'\n    | extend MachineId = substring(tolower(id), 0, indexof(tolower(id), '/providers/microsoft.guestconfiguration'))\n    | project MachineId, properties\n) on MachineId\n| extend RawState = tostring(properties.complianceStatus)\n| extend Compliance = case(RawState =~ 'Compliant', 'Compliant', RawState =~ 'NonCompliant', 'Non-compliant', RawState =~ 'Pending', 'Pending', isempty(RawState), 'Unknown', RawState)\n| summarize Assignments = count() by Compliance\n| order by Assignments desc",
+                    "size": 3,
+                    "title": "Assignments by Compliance state",
+                    "queryType": 1,
+                    "resourceType": "microsoft.resourcegraph/resources",
+                    "crossComponentResources": [
+                      "{Subscription}"
+                    ],
+                    "visualization": "piechart",
+                    "showExportToExcel": true,
+                    "noDataMessage": "No Machine Configuration assignments returned for the scoped Windows SQL hosts. Check assignments, scope, and read permissions; no data does not establish compliance."
+                  },
+                  "customWidth": "50",
+                  "name": "win-bl-assignment-compliance"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "resources\n| where type in~ ('microsoft.hybridcompute/machines', 'microsoft.compute/virtualmachines')\n| where properties.osType =~ 'windows' or properties.storageProfile.osDisk.osType =~ 'windows'\n| project MachineId = tolower(id)\n| join kind=inner (\n    resources\n    | where type in~ ('microsoft.sqlvirtualmachine/sqlvirtualmachines', 'microsoft.azurearcdata/sqlserverinstances', 'microsoft.hybridcompute/machines')\n    | where type !~ 'microsoft.hybridcompute/machines' or tostring(properties.detectedProperties.mssqldiscovered) =~ 'true'\n    | extend MachineId = tolower(case(type =~ 'microsoft.sqlvirtualmachine/sqlvirtualmachines', tostring(properties.virtualMachineResourceId), type =~ 'microsoft.azurearcdata/sqlserverinstances', tostring(properties.containerResourceId), id))\n    | where MachineId matches regex '^/subscriptions/[^/]+/resourcegroups/[^/]+/providers/microsoft[.](compute/virtualmachines|hybridcompute/machines)/[^/]+$'\n    | extend MachineResourceGroup = tostring(split(MachineId, '/')[4])\n    | where ('*' in ({ResourceGroup}) or MachineResourceGroup in~ ({ResourceGroup}))\n    | summarize by MachineId\n) on MachineId\n| project MachineId\n| join kind=inner (\n    guestconfigurationresources\n    | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'\n    | extend MachineId = substring(tolower(id), 0, indexof(tolower(id), '/providers/microsoft.guestconfiguration'))\n    | project MachineId, properties\n) on MachineId\n| mv-expand Rule = properties.latestAssignmentReport.resources\n| where isnotempty(tostring(Rule.resourceId)) and tostring(Rule.resourceId) != 'Invalid assignment package.'\n| extend RawState = tostring(Rule.complianceStatus)\n| extend Compliance = case(RawState in~ ('true', 'Compliant'), 'Compliant', RawState in~ ('false', 'NonCompliant'), 'Non-compliant', RawState =~ 'Pending', 'Pending', isempty(RawState), 'Unknown', RawState)\n| summarize Rules = count() by Compliance\n| order by Rules desc",
+                    "size": 3,
+                    "title": "Assignment Rules by Compliance state",
+                    "queryType": 1,
+                    "resourceType": "microsoft.resourcegraph/resources",
+                    "crossComponentResources": [
+                      "{Subscription}"
+                    ],
+                    "visualization": "piechart",
+                    "showExportToExcel": true,
+                    "noDataMessage": "No latest assignment rule results returned for the scoped Windows SQL hosts. Assignments may be pending or lack detailed reports; no data does not establish compliance."
+                  },
+                  "customWidth": "50",
+                  "name": "win-bl-rule-compliance"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "resources\n| where type in~ ('microsoft.hybridcompute/machines', 'microsoft.compute/virtualmachines')\n| where properties.osType =~ 'linux' or properties.storageProfile.osDisk.osType =~ 'linux'\n| project MachineId = tolower(id)\n| join kind=inner (\n    resources\n    | where type in~ ('microsoft.sqlvirtualmachine/sqlvirtualmachines', 'microsoft.azurearcdata/sqlserverinstances', 'microsoft.hybridcompute/machines')\n    | where type !~ 'microsoft.hybridcompute/machines' or tostring(properties.detectedProperties.mssqldiscovered) =~ 'true'\n    | extend MachineId = tolower(case(type =~ 'microsoft.sqlvirtualmachine/sqlvirtualmachines', tostring(properties.virtualMachineResourceId), type =~ 'microsoft.azurearcdata/sqlserverinstances', tostring(properties.containerResourceId), id))\n    | where MachineId matches regex '^/subscriptions/[^/]+/resourcegroups/[^/]+/providers/microsoft[.](compute/virtualmachines|hybridcompute/machines)/[^/]+$'\n    | extend MachineResourceGroup = tostring(split(MachineId, '/')[4])\n    | where ('*' in ({ResourceGroup}) or MachineResourceGroup in~ ({ResourceGroup}))\n    | summarize by MachineId\n) on MachineId\n| project MachineId\n| join kind=inner (\n    guestconfigurationresources\n    | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'\n    | where tostring(properties.guestConfiguration.name) =~ 'AzureLinuxBaseline'\n    | extend MachineId = substring(tolower(id), 0, indexof(tolower(id), '/providers/microsoft.guestconfiguration'))\n    | project MachineId, properties\n) on MachineId\n| mv-expand Rule = properties.latestAssignmentReport.resources\n| where isnotempty(tostring(Rule.resourceId)) and tostring(Rule.resourceId) != 'Invalid assignment package.'\n| extend RawState = tostring(Rule.complianceStatus)\n| extend Compliance = case(RawState in~ ('true', 'Compliant'), 'Compliant', RawState in~ ('false', 'NonCompliant'), 'Non-compliant', RawState =~ 'Pending', 'Pending', isempty(RawState), 'Unknown', RawState)\n| summarize Rules = count() by Compliance\n| order by Rules desc",
+                    "size": 3,
+                    "title": "Linux baseline Rules",
+                    "queryType": 1,
+                    "resourceType": "microsoft.resourcegraph/resources",
+                    "crossComponentResources": [
+                      "{Subscription}"
+                    ],
+                    "visualization": "piechart",
+                    "showExportToExcel": true,
+                    "noDataMessage": "No AzureLinuxBaseline rule results returned for Linux SQL hosts in the selected subscriptions/resource groups. Check Linux SQL inventory, baseline assignments, report availability, and read permissions; no data does not establish compliance."
+                  },
+                  "customWidth": "50",
+                  "name": "win-bl-linux-rules"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "resources\n| where type in~ ('microsoft.hybridcompute/machines', 'microsoft.compute/virtualmachines')\n| where properties.osType =~ 'windows' or properties.storageProfile.osDisk.osType =~ 'windows'\n| project MachineId = tolower(id)\n| join kind=inner (\n    resources\n    | where type in~ ('microsoft.sqlvirtualmachine/sqlvirtualmachines', 'microsoft.azurearcdata/sqlserverinstances', 'microsoft.hybridcompute/machines')\n    | where type !~ 'microsoft.hybridcompute/machines' or tostring(properties.detectedProperties.mssqldiscovered) =~ 'true'\n    | extend MachineId = tolower(case(type =~ 'microsoft.sqlvirtualmachine/sqlvirtualmachines', tostring(properties.virtualMachineResourceId), type =~ 'microsoft.azurearcdata/sqlserverinstances', tostring(properties.containerResourceId), id))\n    | where MachineId matches regex '^/subscriptions/[^/]+/resourcegroups/[^/]+/providers/microsoft[.](compute/virtualmachines|hybridcompute/machines)/[^/]+$'\n    | extend MachineResourceGroup = tostring(split(MachineId, '/')[4])\n    | where ('*' in ({ResourceGroup}) or MachineResourceGroup in~ ({ResourceGroup}))\n    | summarize by MachineId\n) on MachineId\n| project MachineId\n| join kind=inner (\n    guestconfigurationresources\n    | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'\n    | where tostring(properties.guestConfiguration.name) =~ 'AzureWindowsBaseline'\n    | extend MachineId = substring(tolower(id), 0, indexof(tolower(id), '/providers/microsoft.guestconfiguration'))\n    | project MachineId, properties\n) on MachineId\n| mv-expand Rule = properties.latestAssignmentReport.resources\n| where isnotempty(tostring(Rule.resourceId)) and tostring(Rule.resourceId) != 'Invalid assignment package.'\n| extend RawState = tostring(Rule.complianceStatus)\n| extend Compliance = case(RawState in~ ('true', 'Compliant'), 'Compliant', RawState in~ ('false', 'NonCompliant'), 'Non-compliant', RawState =~ 'Pending', 'Pending', isempty(RawState), 'Unknown', RawState)\n| summarize Rules = count() by Compliance\n| order by Rules desc",
+                    "size": 3,
+                    "title": "Windows baseline Rules",
+                    "queryType": 1,
+                    "resourceType": "microsoft.resourcegraph/resources",
+                    "crossComponentResources": [
+                      "{Subscription}"
+                    ],
+                    "visualization": "piechart",
+                    "showExportToExcel": true,
+                    "noDataMessage": "No AzureWindowsBaseline rule results returned for the scoped Windows SQL hosts. Check baseline assignments, report availability, and read permissions; no data does not establish compliance."
+                  },
+                  "customWidth": "50",
+                  "name": "win-bl-windows-rules"
                 },
                 {
                   "type": 3,
@@ -5372,6 +5581,36 @@
               "groupType": "editable",
               "items": [
                 {
+                  "type": 9,
+                  "content": {
+                    "version": "KqlParameterItem/1.0",
+                    "parameters": [
+                      {
+                        "id": "9ae0c38b-c28e-4c79-8b05-529f85b26f62",
+                        "version": "KqlParameterItem/1.0",
+                        "name": "WinSoftwareMachineId",
+                        "label": "Windows SQL host (Change Tracking)",
+                        "type": 2,
+                        "description": "Select a host for Software inventory and Recent software changes (including patches). Source: Azure Change Tracking and Inventory. Defender inventory remains estate-wide.",
+                        "isRequired": true,
+                        "multiSelect": false,
+                        "query": "resources\n| where type in~ ('microsoft.hybridcompute/machines', 'microsoft.compute/virtualmachines')\n| where properties.osType =~ 'windows' or properties.storageProfile.osDisk.osType =~ 'windows'\n| extend MachineId = tolower(id)\n| join kind=inner (\nresources\n| where type in~ ('microsoft.sqlvirtualmachine/sqlvirtualmachines', 'microsoft.azurearcdata/sqlserverinstances', 'microsoft.hybridcompute/machines')\n| where type !~ 'microsoft.hybridcompute/machines' or tostring(properties.detectedProperties.mssqldiscovered) =~ 'true'\n| extend MachineId = tolower(case(\n    type =~ 'microsoft.sqlvirtualmachine/sqlvirtualmachines', tostring(properties.virtualMachineResourceId),\n    type =~ 'microsoft.azurearcdata/sqlserverinstances', tostring(properties.containerResourceId), id))\n| where MachineId matches regex '^/subscriptions/[^/]+/resourcegroups/[^/]+/providers/microsoft[.](compute/virtualmachines|hybridcompute/machines)/[^/]+$'\n| extend MachineResourceGroup = tostring(split(MachineId, '/')[4])\n| where '*' in ({ResourceGroup}) or MachineResourceGroup in~ ({ResourceGroup})\n| summarize by MachineId\n) on MachineId\n| project value = MachineId, label = strcat(name, ' (', resourceGroup, ')'), group = subscriptionId\n| order by label asc",
+                        "crossComponentResources": [
+                          "{Subscription}"
+                        ],
+                        "typeSettings": {
+                          "additionalResourceOptions": [],
+                          "showDefault": false
+                        },
+                        "queryType": 1,
+                        "resourceType": "microsoft.resourcegraph/resources"
+                      }
+                    ],
+                    "style": "pills"
+                  },
+                  "name": "win-software-machine-param"
+                },
+                {
                   "type": 11,
                   "content": {
                     "version": "LinkItem/1.0",
@@ -5389,7 +5628,7 @@
                         "id": "707a0d1e-4ae0-5980-aff9-c978ea0c4873",
                         "cellValue": "WinSoftwareTab",
                         "linkTarget": "parameter",
-                        "linkLabel": "Change Tracking inventory",
+                        "linkLabel": "Software inventory",
                         "subTarget": "ct",
                         "style": "link"
                       },
@@ -5397,7 +5636,7 @@
                         "id": "9184ac7d-bfb8-5f92-9cd5-43e26624cfd7",
                         "cellValue": "WinSoftwareTab",
                         "linkTarget": "parameter",
-                        "linkLabel": "Recent changes",
+                        "linkLabel": "Recent software changes",
                         "subTarget": "changes",
                         "style": "link"
                       }
@@ -5500,9 +5739,9 @@
                         "type": 3,
                         "content": {
                           "version": "KqlItem/1.0",
-                          "query": "ConfigurationData\n| where TimeGenerated > ago({WinSwTimeRange})\n| where ConfigDataType == 'Software' and SoftwareType =~ 'Application'\n| where '{WinMachineId}' != 'All' and tolower(_ResourceId) == '{WinMachineId}'\n| summarize arg_max(TimeGenerated, *) by Computer, SoftwareName\n| summarize Machines = dcount(Computer), Versions = dcount(CurrentVersion), MachineNames = make_set(Computer, 25) by Software = SoftwareName, Publisher\n| order by Machines desc, Software asc",
+                          "query": "ConfigurationData\n| where TimeGenerated > ago({WinSwTimeRange})\n| where ConfigDataType == 'Software' and SoftwareType =~ 'Application'\n| where isnotempty('{WinSoftwareMachineId}') and tolower(_ResourceId) == '{WinSoftwareMachineId}'\n| summarize arg_max(TimeGenerated, *) by Computer, SoftwareName\n| summarize Machines = dcount(Computer), Versions = dcount(CurrentVersion), MachineNames = make_set(Computer, 25) by Software = SoftwareName, Publisher\n| order by Machines desc, Software asc",
                           "size": 3,
-                          "title": "Installed software: selected SQL host (Change Tracking)",
+                          "title": "Software inventory: selected SQL host",
                           "queryType": 0,
                           "resourceType": "microsoft.operationalinsights/workspaces",
                           "crossComponentResources": [
@@ -5510,7 +5749,7 @@
                           ],
                           "visualization": "table",
                           "showExportToExcel": true,
-                          "noDataMessage": "Select a Windows SQL host under Machines. Change Tracking data must be collected for that host in the selected workspace and time window; records must include its full resource ID.",
+                          "noDataMessage": "Select a Windows SQL host using the dropdown above. Change Tracking data must be collected for that host in the selected workspace and time window; records must include its full resource ID.",
                           "gridSettings": {
                             "formatters": [],
                             "filter": true
@@ -5537,9 +5776,9 @@
                         "type": 3,
                         "content": {
                           "version": "KqlItem/1.0",
-                          "query": "ConfigurationChange\n| where TimeGenerated > ago({WinSwTimeRange})\n| where ConfigChangeType == 'Software' and SoftwareType =~ 'Application'\n| where '{WinMachineId}' != 'All' and tolower(_ResourceId) == '{WinMachineId}'\n| project TimeGenerated, Machine = Computer, ChangeCategory, Software = SoftwareName, Previous = column_ifexists('Previous', ''),\n    Current = column_ifexists('Current', ''), Publisher = column_ifexists('Publisher', '')\n| order by TimeGenerated desc\n| take 1000",
+                          "query": "ConfigurationChange\n| where TimeGenerated > ago({WinSwTimeRange})\n| where ConfigChangeType == 'Software'\n| where isnotempty('{WinSoftwareMachineId}') and tolower(_ResourceId) == '{WinSoftwareMachineId}'\n| project TimeGenerated, Machine = Computer, ChangeCategory, SoftwareType, Software = SoftwareName, Previous = column_ifexists('Previous', ''),\n    Current = column_ifexists('Current', ''), Publisher = column_ifexists('Publisher', '')\n| order by TimeGenerated desc\n| take 1000",
                           "size": 3,
-                          "title": "Recent software changes: selected SQL host (Change Tracking)",
+                          "title": "Recent software changes, including patches: selected SQL host (Change Tracking)",
                           "queryType": 0,
                           "resourceType": "microsoft.operationalinsights/workspaces",
                           "crossComponentResources": [
@@ -5547,7 +5786,7 @@
                           ],
                           "visualization": "table",
                           "showExportToExcel": true,
-                          "noDataMessage": "Select a Windows SQL host under Machines. Change Tracking data must be collected for that host in the selected workspace and time window; records must include its full resource ID.",
+                          "noDataMessage": "No software or patch changes were returned for the host selected in the dropdown above, workspace and time window. Inventory can exist without any software changes. Windows service, file and registry changes are not shown here.",
                           "gridSettings": {
                             "formatters": [
                               {

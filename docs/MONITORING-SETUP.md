@@ -378,6 +378,70 @@ SQL updates appear only when the OS update source (Microsoft Update, WSUS,
 or Linux package manager) reports them. This is not a full SQL CU/release/EOS
 catalogue and does not replace SQL-specific servicing checks.
 
+### Azure Updates ESU subtab
+
+**Azure Updates > Extended Security Updates (ESU)** covers all Arc machines in
+the selected subscriptions/resource groups, independently of the SQL-host-only
+**Update assessments** subtab and its selected-machine filter.
+
+- Windows Server: reported ESU eligibility, license assignment/key state, and
+  embedded assigned-license details from the Arc machine's license profile.
+- SQL Server: host-level ESU subscription configuration from the Windows/Linux
+  SQL extension, including provisioning state, license type, excluded instances,
+  physical-core ESU setting, and ESU setting timestamp (not last patch installation).
+- License resources: separate Windows Server and SQL Server ESU license inventory,
+  with state, target version, and available core/billing details. This inventory
+  is scoped by the license resource's group, not the machine's group; shared
+  licenses elsewhere may not appear. It does not assert machine coverage.
+
+Missing ARG properties are labelled **Not reported**, not disabled or ineligible.
+Non-SQL and non-Windows machines can appear with unreported product fields.
+An enabled SQL host setting does not establish entitlement for every instance.
+ESU licensing/enrollment is not evidence that updates are installed; the patch
+assessment data does not reliably distinguish ESU-only patches. These read-only
+views do not enroll machines, create licenses, activate keys, or change billing.
+ARG may omit instance-view license details; check the machine's ESU portal blade
+when those fields are not returned.
+
+Sources: [Windows ESU APIs](https://learn.microsoft.com/azure/azure-arc/servers/api-extended-security-updates),
+[SQL extension configuration and ARG samples](https://learn.microsoft.com/sql/sql-server/azure-arc/manage-configuration),
+and [SQL ESU license schema](https://learn.microsoft.com/rest/api/arcdata/sql-server-esu-licenses/get?view=rest-arcdata-2026-01-01).
+
+### Windows Health baseline compliance charts
+
+Under **Windows Health > Baseline & Compliance**, four pie charts appear after
+**Baseline coverage** and before **Machine Configurations per Server**:
+
+- **Assignments by Compliance state** counts Machine Configuration assignments on Windows SQL hosts.
+- **Assignment Rules by Compliance state** counts rule results in their latest assignment reports.
+- **Linux baseline Rules** counts `AzureLinuxBaseline` rule results on Linux SQL hosts.
+- **Windows baseline Rules** counts `AzureWindowsBaseline` rule results on Windows SQL hosts.
+
+All charts use Azure Resource Graph and the selected subscriptions/resource groups.
+The Linux chart intentionally includes Linux SQL hosts despite being on the
+Windows Health tab. Host discovery uses the same SQL inventory sources as the
+other workbook panels and deduplicates hosts before joining assignments.
+Rule counts are per machine and assignment, not distinct rule definitions;
+reason messages do not multiply them. Boolean and textual compliance results
+are normalized, and missing status values are labelled Unknown.
+Missing reports or assignments do not imply compliance. These charts do not
+enable Machine Configuration or deploy baseline assignments. Portal totals can
+differ because these charts are scoped to SQL hosts, not every Arc machine.
+
+### Windows Health software selection
+
+Under **Windows Health > Installed software**, use the **Windows SQL host
+(Change Tracking)** dropdown to select a host for **Software inventory**
+and **Recent software changes**. It lists Windows SQL hosts in the selected subscriptions
+and resource groups, independently of row selection under **Machines**.
+Choose the Change Tracking workspace and software inventory window above.
+Records must include the selected host's full resource ID; selecting a host
+does not enable data collection. Defender inventory remains estate-wide.
+Recent software changes includes application and patch changes from
+`ConfigurationChange`, but not Windows service, file, or registry changes.
+An installed-software inventory can exist without any software-change history
+in the selected time window.
+
 ### Collection resources in this repository
 
 | Resource | Purpose |

@@ -53,6 +53,46 @@ errors, including unsupported hardware or Windows editions, stop lab creation.
 The script selects `Default Switch` when available, otherwise the first switch.
 Pass `-SwitchName` explicitly to avoid choosing the wrong network.
 
+## Query or activate existing Windows guests
+
+Use [Set-HyperVGuestWindowsActivation.ps1](../hyper-v/Set-HyperVGuestWindowsActivation.ps1)
+from an elevated PowerShell session **on the Hyper-V host**. Guests must be
+running and support PowerShell Direct; supply guest administrator credentials.
+No Azure sign-in, Arc Run Command, or guest WinRM configuration is required.
+Targets are explicit; the script does not discover or verify Arc enrollment.
+
+```powershell
+# Read-only: reports Windows version, edition, build, and activation status.
+.\hyper-v\Set-HyperVGuestWindowsActivation.ps1 -VMName arcsql-01,arcsql-02
+
+# Mixed Windows versions: securely prompt for a matching key for each guest.
+.\hyper-v\Set-HyperVGuestWindowsActivation.ps1 -VMName arcsql-01,arcsql-02 -Activate
+```
+
+Activation prompts for confirmation (supports `-WhatIf`) and skips already
+licensed guests without asking for a key. Each key prompt identifies the VM,
+Windows version, edition, and build detected before activation. Keys are not
+reused between guests unless you explicitly supply `-ProductKey`, which applies
+one key to all selected guests; use that option only for matching versions,
+editions, and licensing rights. `-WhatIf` queries guests but does not prompt for
+keys or activate them. It verifies the installed product's `LicenseStatus=1` after
+activation, polling for up to 60 seconds by default. Failures are reported per
+guest and cause a final terminating error; successful guests are not rolled back.
+Only the last five key characters are reported. Do not paste keys into commands,
+source files, transcripts, or chat. Secure input reduces accidental exposure,
+but Windows licensing APIs necessarily receive the key in plaintext in memory.
+Copied keys have leading/trailing whitespace removed. Licensing exceptions
+include provider and inner-exception diagnostics with product keys redacted.
+If installation fails, retry one guest and use the detailed Windows error to
+check the key's version, edition, and channel. A generic `0x80131500` exception
+alone does not establish that the key is invalid. Do not share the key itself.
+
+Evaluation editions require a separate supported edition conversion and possibly
+a reboot; this script deliberately refuses to convert them. Guests need access
+to the activation service appropriate to their key (Microsoft or your KMS).
+Arc enrollment is not Windows activation, and activation status is not proof of
+licensing entitlement. This does not activate SQL Server or change Arc billing.
+
 ## 1. Define and build the machines
 
 Run from the repository root. Update the ISO paths to your actual media.
