@@ -138,13 +138,14 @@ if ($reset.cellValue -ne 'AdvisorMachineId' -or $reset.subTarget -ne 'All') {
     throw 'Advisor must provide a reset to all SQL hosts.'
 }
 $updates = @($latest.items | Where-Object { $_.name -eq 'group - Azure Updates' })[0]
-$updateQueries = @($updates.content.items | Where-Object { $_.type -eq 3 })
+$updateAssessments = @($updates.content.items | Where-Object name -eq 'group - updates-assessments')[0]
+$updateQueries = @($updateAssessments.content.items | Where-Object { $_.type -eq 3 })
 if ($updateQueries.Count -ne 7 -or
     @($updateQueries | Where-Object { $_.content.visualization -eq 'piechart' }).Count -ne 3) {
     throw 'Updates must include totals, three pies, host summary, patch catalogue, and selected-machine detail.'
 }
 $updateParameter = @($updates.content.items | Where-Object { $_.type -eq 9 } |
-    ForEach-Object { $_.content.parameters })
+    ForEach-Object { $_.content.parameters } | Where-Object name -eq 'UpdatesMachineId')
 if ($updateParameter.Count -ne 1 -or $updateParameter[0].name -ne 'UpdatesMachineId' -or
     $updateParameter[0].value -ne 'All') {
     throw 'Update machine selection must initialize to All, independently of Advisor selection.'
@@ -177,13 +178,62 @@ if (-not $updateDetails.query.Contains("'{UpdatesMachineId}' == 'All' or Machine
     -not $updateDetails.query.Contains('| where PatchValid')) {
     throw 'Update details must filter valid patches and support selecting a host or viewing all hosts.'
 }
-$updateReset = @($updates.content.items | Where-Object { $_.name -eq 'links - updates-reset' })[0].content.links[0]
+$updateReset = @($updateAssessments.content.items | Where-Object { $_.name -eq 'links - updates-reset' })[0].content.links[0]
 if ($updateReset.cellValue -ne 'UpdatesMachineId' -or $updateReset.subTarget -ne 'All') {
     throw 'Updates must provide a reset to all SQL hosts.'
 }
+$sectionParameter = @($updates.content.items | Where-Object type -eq 9 |
+    ForEach-Object { $_.content.parameters } | Where-Object name -eq 'UpdatesSection')
+$sectionTabs = @($updates.content.items | Where-Object name -eq 'links - updates-sections')[0]
+if ($sectionParameter.Count -ne 1 -or $sectionParameter[0].value -ne 'patches' -or
+    ($sectionTabs.content.links.subTarget -join ',') -ne 'patches,esu' -or
+    @($sectionTabs.content.links | Where-Object cellValue -ne 'UpdatesSection').Count) {
+    throw 'Azure Updates must initialize independent assessment/ESU subtabs with assessments selected.'
+}
+$esuGroup = @($updates.content.items | Where-Object name -eq 'group - updates-esu')[0]
+foreach ($section in @(@{Group=$updateAssessments; Value='patches'}, @{Group=$esuGroup; Value='esu'})) {
+    if ($section.Group.conditionalVisibility.parameterName -ne 'UpdatesSection' -or
+        $section.Group.conditionalVisibility.comparison -ne 'isEqualTo' -or
+        $section.Group.conditionalVisibility.value -ne $section.Value) {
+        throw 'Update assessment and ESU content must be independently gated by the subtab selector.'
+    }
+}
+$esuQueries = @($esuGroup.content.items | Where-Object type -eq 3)
+if ($esuQueries.Count -ne 3) { throw 'ESU requires Windows machine, SQL host setting, and independent license inventories.' }
+foreach ($panel in $esuQueries) {
+    $q = $panel.content.query
+    if ($panel.content.queryType -ne 1 -or $panel.content.crossComponentResources[0] -ne '{Subscription}' -or
+        -not $q.Contains("'*' in ({ResourceGroup}) or resourceGroup in~ ({ResourceGroup})") -or
+        $q.Contains('{UpdatesMachineId}') -or $q.Contains('microsoft.compute/virtualmachines') -or
+        $q.Contains("where properties.detectedProperties.mssqldiscovered") -or
+        [regex]::Matches($q, '\|\s*join\b[^(\r\n]*\(\s*resources\b', 'IgnoreCase').Count -gt 1) {
+        throw "ESU inventories must cover all scoped Arc machines, independently of SQL/patch selection and within ARG join limits: $($panel.name)"
+    }
+}
+$esuWindows = @($esuQueries | Where-Object name -eq 'query - updates-esu-windows')[0].content.query
+foreach ($field in @('properties.licenseProfile.esuProfile', 'Esu.esuEligibility',
+    'Esu.licenseAssignmentState', 'Esu.esuKeyState', 'Esu.assignedLicense.id',
+    "coalesce(tostring(Esu.esuEligibility), 'Not reported')")) {
+    if (-not $esuWindows.Contains($field)) { throw "Windows ESU inventory lacks reported field/unknown handling: $field" }
+}
+$esuSql = @($esuQueries | Where-Object name -eq 'query - updates-esu-sql')[0].content.query
+foreach ($field in @('join kind=leftouter', 'WindowsAgent.SqlServer', 'LinuxAgent.SqlServer',
+    'properties.settings.enableExtendedSecurityUpdates', 'properties.settings.ExcludedSqlInstances',
+    'properties.settings.esuLastUpdatedTimestamp',
+    "ReportedEsuSetting =~ 'false', 'Disabled', 'Not reported'")) {
+    if (-not $esuSql.Contains($field)) { throw "SQL ESU inventory lacks configuration field/unknown handling: $field" }
+}
+$esuLicenses = @($esuQueries | Where-Object name -eq 'query - updates-esu-licenses')[0].content.query
+foreach ($field in @('microsoft.hybridcompute/licenses', 'microsoft.azurearcdata/sqlserveresulicenses',
+    'properties.activationState', 'properties.licenseDetails.state', 'properties.licenseDetails.target',
+    'properties.version', 'properties.physicalCores')) {
+    if (-not $esuLicenses.Contains($field)) { throw "ESU license inventory lacks product-specific field: $field" }
+}
 foreach ($groupName in @('group - Storage IO', 'group - Azure Advisor', 'group - Azure Updates')) {
     $group = @($latest.items | Where-Object { $_.name -eq $groupName })[0]
-    foreach ($item in $group.content.items) {
+    $layoutItems = $group.content.items
+    if ($groupName -eq 'group - Azure Updates') { $layoutItems = $updateAssessments.content.items }
+    foreach ($item in $layoutItems) {
         if ($item.name -in @('query - disk-config', 'query - storage-checklist',
             'query - io-summary', 'query - bpa-storage-findings', 'query - advisor-machines',
             'query - advisor-details') -or
@@ -198,7 +248,7 @@ foreach ($groupName in @('group - Storage IO', 'group - Azure Advisor', 'group -
 }
 foreach ($entry in @(
     @{ Group = $advisor; Name = 'text - advisor-header'; Text = '# Azure Advisor for SQL Hosts' },
-    @{ Group = $updates; Name = 'text - updates-header'; Text = '# Azure Updates for SQL Hosts' }
+    @{ Group = $updates; Name = 'text - updates-header'; Text = '# Azure Updates' }
 )) {
     $heading = @($entry.Group.content.items | Where-Object { $_.name -eq $entry.Name })[0]
     if ($heading.content.json -cne $entry.Text) { throw "Header must contain only its title: $($entry.Name)" }
@@ -237,7 +287,7 @@ foreach ($queryItem in $windowsQueries) {
             }
         }
     }
-    if ($queryItem.content.queryType -eq 0 -and
+    if ($queryItem.content.queryType -eq 0 -and $queryItem.name -notin @('win-sw-ct-grid', 'win-sw-changes-grid') -and
         (-not $query.Contains("'{WinMachineId}' != 'All' and tolower(_ResourceId) == '{WinMachineId}'") -or
         $query.Contains("Computer =~ '{WinMachineName}'"))) {
         throw "Change Tracking must match the selected SQL host by resource ID: $($queryItem.name)"
@@ -250,6 +300,61 @@ if (-not $windowsGrid.Contains('microsoft.compute/virtualmachines/patchassessmen
     throw 'Windows Health must show native SQL VM patch assessment and host type without an Arc connection requirement.'
 }
 $baselineGroup = @($windows[0].content.items | Where-Object name -eq 'win-section-baseline')[0]
+$baselineCharts = @(
+    @{Name='win-bl-assignment-compliance'; Title='Assignments by Compliance state'; OS='windows'; Configuration=$null; Metric='Assignments'},
+    @{Name='win-bl-rule-compliance'; Title='Assignment Rules by Compliance state'; OS='windows'; Configuration=$null; Metric='Rules'},
+    @{Name='win-bl-linux-rules'; Title='Linux baseline Rules'; OS='linux'; Configuration='AzureLinuxBaseline'; Metric='Rules'},
+    @{Name='win-bl-windows-rules'; Title='Windows baseline Rules'; OS='windows'; Configuration='AzureWindowsBaseline'; Metric='Rules'}
+)
+$baselineNames = @($baselineGroup.content.items.name)
+$previousIndex = [array]::IndexOf($baselineNames, 'win-bl-tiles')
+$machineIndex = [array]::IndexOf($baselineNames, 'win-bl-machines')
+if ('text - baseline-chart-scope' -in $baselineNames -or
+    [array]::IndexOf($baselineNames, 'win-bl-assignment-compliance') -ne $previousIndex + 1) {
+    throw 'Compliance pies must immediately follow baseline coverage without an intervening explanation panel.'
+}
+foreach ($spec in $baselineCharts) {
+    $panels = @($baselineGroup.content.items | Where-Object name -eq $spec.Name)
+    $index = [array]::IndexOf($baselineNames, $spec.Name)
+    if ($panels.Count -ne 1 -or $index -le $previousIndex -or $index -ge $machineIndex) {
+        throw "Compliance pies must appear in order between coverage and per-server configurations: $($spec.Name)"
+    }
+    $previousIndex = $index
+    $panel = $panels[0]
+    $chart = $panel.content
+    if ($chart.visualization -ne 'piechart' -or $chart.title -cne $spec.Title -or
+        $panel.customWidth -ne '50' -or $chart.queryType -ne 1 -or
+        $chart.crossComponentResources[0] -ne '{Subscription}' -or
+        -not $chart.noDataMessage.Contains('no data does not establish compliance')) {
+        throw "Compliance pie layout, source, or no-data explanation is incorrect: $($spec.Name)"
+    }
+    foreach ($required in @('guestconfigurationresources', 'microsoft.guestconfiguration/guestconfigurationassignments',
+        'microsoft.hybridcompute/machines', 'microsoft.compute/virtualmachines',
+        'microsoft.sqlvirtualmachine/sqlvirtualmachines', 'microsoft.azurearcdata/sqlserverinstances',
+        'properties.detectedProperties.mssqldiscovered', 'properties.virtualMachineResourceId', 'properties.containerResourceId',
+        'MachineResourceGroup in~ ({ResourceGroup})', '| summarize by MachineId',
+        "properties.osType =~ '$($spec.OS)'", "properties.storageProfile.osDisk.osType =~ '$($spec.OS)'",
+        "isempty(RawState), 'Unknown'", "| summarize $($spec.Metric) = count() by Compliance")) {
+        if (-not $chart.query.Contains($required)) { throw "Compliance pie $($spec.Name) lacks $required" }
+    }
+    if ($chart.query.Contains('{WinMachineId}')) { throw 'Estate compliance charts must not depend on selected-machine drill-down.' }
+    if (-not $chart.query.StartsWith("resources`n") -or
+        [regex]::Matches($chart.query, '\|\s*join\b[^(\r\n]*\(\s*resources\b', 'IgnoreCase').Count -ne 1 -or
+        [regex]::Matches($chart.query, '\|\s*join\b[^(\r\n]*\(\s*guestconfigurationresources\b', 'IgnoreCase').Count -ne 1) {
+        throw "Compliance pie must start from hosts and join each right-hand table only once (ARG limit): $($spec.Name)"
+    }
+    if ($spec.Metric -eq 'Rules') {
+        foreach ($required in @('mv-expand Rule = properties.latestAssignmentReport.resources',
+            "isnotempty(tostring(Rule.resourceId))", "tostring(Rule.resourceId) != 'Invalid assignment package.'",
+            "RawState in~ ('true', 'Compliant')", "RawState in~ ('false', 'NonCompliant')")) {
+            if (-not $chart.query.Contains($required)) { throw "Rule pie $($spec.Name) lacks $required" }
+        }
+        if ($chart.query.Contains('mv-expand reason')) { throw 'Reasons must not multiply rule counts.' }
+    } elseif ($chart.query.Contains('mv-expand Rule')) { throw 'Assignment pie must count assignments, not rules.' }
+    if ($spec.Configuration -and -not $chart.query.Contains("tostring(properties.guestConfiguration.name) =~ '$($spec.Configuration)'")) {
+        throw "Baseline pie must filter by its named configuration: $($spec.Name)"
+    }
+}
 $baselineNote = @($baselineGroup.content.items | Where-Object name -eq 'text - baseline-explanation')[0]
 if ($null -eq $baselineNote -or $baselineGroup.content.items[0].name -ne 'text - baseline-explanation' -or
     -not $baselineNote.content.json.Contains('guestconfigurationresources') -or
@@ -259,6 +364,40 @@ if ($null -eq $baselineNote -or $baselineGroup.content.items[0].name -ne 'text -
 $defenderSoftware = @($windowsQueries | Where-Object name -eq 'win-sw-def-grid')[0]
 $cveTable = @($windowsQueries | Where-Object name -eq 'win-defender-cves')[0]
 $softwareSection = @($windows[0].content.items | Where-Object name -eq 'win-section-software')[0]
+$softwareSelector = @($softwareSection.content.items | Where-Object name -eq 'win-software-machine-param')
+if ($softwareSelector.Count -ne 1 -or $softwareSection.content.items[0].name -ne 'win-software-machine-param') {
+    throw 'Installed software must provide its own visible host dropdown before the software panels.'
+}
+$hostParameter = $softwareSelector[0].content.parameters[0]
+if ($hostParameter.name -ne 'WinSoftwareMachineId' -or $hostParameter.type -ne 2 -or
+    $hostParameter['isHiddenWhenLocked'] -eq $true -or $hostParameter.multiSelect -ne $false -or
+    $hostParameter.queryType -ne 1 -or $hostParameter.crossComponentResources[0] -ne '{Subscription}') {
+    throw 'Software host selection must be a visible single-select Resource Graph dropdown scoped to subscriptions.'
+}
+foreach ($required in @('microsoft.compute/virtualmachines', 'microsoft.hybridcompute/machines',
+    'microsoft.sqlvirtualmachine/sqlvirtualmachines', 'microsoft.azurearcdata/sqlserverinstances',
+    'properties.detectedProperties.mssqldiscovered', 'properties.storageProfile.osDisk.osType',
+    'MachineResourceGroup in~ ({ResourceGroup})', 'value = MachineId')) {
+    if (-not $hostParameter.query.Contains($required)) {
+        throw "Software host selector must return full resource IDs for scoped Windows SQL hosts: missing $required"
+    }
+}
+foreach ($panelName in @('win-sw-ct-grid', 'win-sw-changes-grid')) {
+    $panel = @($windowsQueries | Where-Object name -eq $panelName)
+    if ($panel.Count -ne 1 -or
+        -not $panel[0].content.query.Contains("isnotempty('{WinSoftwareMachineId}') and tolower(_ResourceId) == '{WinSoftwareMachineId}'") -or
+        $panel[0].content.query.Contains('{WinMachineId}') -or
+        -not $panel[0].content.noDataMessage.Contains('dropdown above')) {
+        throw "Software panel $panelName must use its own dropdown without depending on the Machines selection."
+    }
+}
+$softwareChanges = @($windowsQueries | Where-Object name -eq 'win-sw-changes-grid')[0].content
+if (-not $softwareChanges.query.Contains("ConfigChangeType == 'Software'") -or
+    $softwareChanges.query.Contains("SoftwareType =~ 'Application'") -or
+    -not $softwareChanges.query.Contains('ChangeCategory, SoftwareType, Software = SoftwareName') -or
+    -not $softwareChanges.noDataMessage.Contains('Inventory can exist without any software changes.')) {
+    throw 'Recent software changes must include patches, identify the software type, and explain empty change history separately from inventory.'
+}
 $softwareDefenderGroup = @($softwareSection.content.items | Where-Object name -eq 'win-sw-defender')[0]
 $defenderLink = @($softwareDefenderGroup.content.items | Where-Object name -eq 'text - defender-portal-link')[0]
 if ($null -eq $cveTable -or $null -eq $defenderLink -or
